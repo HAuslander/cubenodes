@@ -2031,477 +2031,6 @@ class cubenodeset_t():
                 
 
 
-    def DivideCube(self, CoordNode, NodeCoord):
-
-
-        """
-        sort the desired new coords by 
-        A) number of intervening components (i.e. components not equal to 0 or cubelen)
-        B) index of intervening node
-
-        Having done this, any desired matchup between about-to-be-created and previously-created
-        can be found by looking for the intersection of nodes already matched up.
-
-        E.g. any node immediately next to two edges (e.g. the (1,1‚  node) is the intesection of
-        two edge nodes, and then the rest (i.e. (2,1), (3,1)... and (1,2), (1,3), (1,4)...) can be 
-        found the same way -- just decrement two comonents; there's gotta be one already created (if
-        the adjacent node was divided)
-        """
-          
-        def NIntervening(vec, basis):
-            retsum = 0
-            for icomp in vec:
-                if icomp != 0 and icomp != basis-1:
-                    retsum += 1
-            return retsum 
-
-        def modall(vec, basis):
-            for icomp in vec:
-                if icomp % basis != 0:
-                    return False
-            return True
-
-        def GetCoords(thistuple, node0, nslices, axisedges, CoordNode, NodeCoord):
-            dimlen = float(nslices+1)
-            thisaxis = np.array(self.NodeVec[node0].Coords) 
-            #try:
-            #    thisaxis_rational = list( self.NodeVec[node0].RatCoords )
-            #except:
-            #    import pdb; pdb.set_trace()
-            coord0 = copy(thisaxis) # this is the anchor vector
-            for i in range(self.NDim):
-                coord_thisdim = np.array( self.NodeVec[axisedges[i]].Coords )
-                #coord_thisdim_rational = [ self.NodeVec[axisedges[i]].RatCoords[j] for j 
-                try:
-                    if np.max(np.abs(coord_thisdim - coord0)) > 1:
-                        for iicomp, icomp in enumerate(coord0):
-                            if np.abs(coord_thisdim[iicomp] - coord0[iicomp]) > 1:
-                                if coord_thisdim[iicomp] > coord0[iicomp]:
-                                    coord0[iicomp] += self.TorLen
-                                elif coord_thisdim[iicomp] < coord0[iicomp]:
-                                    coord_thisdim[iicomp] += self.TorLen
-                        
-                    thisaxis = thisaxis + (coord_thisdim - coord0) * thistuple[i]/dimlen
-                    #for j in range(len(thisaxis_rational)):
-                    #    thisaxis_rational[j] = thisaxis_rational[j] + RationalNumber(((coord_thisdim[j] - coord0[j]) *  thistuple[i]), dimlen)
-                except:
-                    print("BAD")
-                    import pdb; pdb.set_trace()
-
-            for iicomp, icomp in enumerate(thisaxis):
-                if icomp < 0:
-                    thisaxis[iicomp] += self.TorLen
-                    #thisaxis_rational[iicomp] = thisaxis_rational[iicomp] + self.TorLen
-                thisaxis[iicomp] %= self.TorLen
-
-                #num = thisaxis_rational[iicomp].numerator
-                #den = thisaxis_rational[iicomp].denominator
-                #num %=  (self.TorLen * den)
-                #thisaxis_rational[iicomp] = RationalNumber(num, den)
-            #return (tuple(thisaxis), tuple(thisaxis_rational))
-            return (tuple(thisaxis), None)
-
-
-
-        def firstintervening(somevec, cubelen):
-            for ii,i in enumerate(list(somevec)):
-                if i != 0 and i != cubelen:
-                    return ii
-            return None
-
-
-        def allintervening(somevec, cubelen):
-            myretval = []
-            for i in list(somevec):
-                if i != 0 and i != cubelen:
-                    myretval.append(i)
-            return tuple(myretval)
-
-        def ToBeIntersected(icoord,  cubelen):
-            """
-            let ninter be the number of intervening components of icoord
-
-            return ninter icoords (each  of which has differes by one decremented component from icoord whose inersection is the node corresponding to icoord.
-            For example, if icoord is (1,1), then the returned vectors are (1,0) and (0,1), and the non-trivial intersection of their neighbors will be the node corresponding
-            to (1,1)
-
-            If coord is (1,1,1), then returned values are (1,1,0),(1,0,1) and (0,1,1)
-            If coord is (1,2,1), then returned values are (1,2,0),(1,1,1) and (0,2,1) -- note that because of the sorting of the nodes to be matched, each of the rturned
-            nodes will have already been matched by the time we need to d the matching
-            
-            """
-
-            myret = []
-
-            for ii,i in enumerate(icoord):
-                if i != 0 and i != cubelen:
-                    thiscoord = list(icoord)
-                    thiscoord[ii] -= 1
-                    myret.append(tuple(thiscoord))
-            return myret
-            
-        nslices = self.NSlices
-
-        IdCoord = tuple([0] * self.NDim)
-
-        if CoordNode is None:
-            return 
-        Id = CoordNode[IdCoord]
-
-        cubelen = nslices + 1
-        nodelen = cubelen + 1
-
-        newcoordnode = {}
-        newnodecoord = {}
-
-        bHistory = True
-
-
-
-        
-        for key,val in CoordNode.items():
-            newkey = tuple([cubelen * icomp for icomp in key])
-            newcoordnode[newkey] = val
-            newnodecoord[val] = newkey
-        
-
-        
-
-
-        axisedges = [] # the first node of the edge is just (0,0,...) -- i.e. Id -- and is understood
-        for i in range(self.NDim):
-            thisaxis = np.zeros((self.NDim,)).astype("int")
-            thisaxis[i] = 1
-            #axes.append(tuple(thisaxis))
-            axisedges.append(CoordNode[tuple(thisaxis)])
-
-        alreadydone = []
-        # Next we will see if any of the required have already been created due to divisions
-        # in adjacent D-cubes
-
-        # first explicitly search for the nodes situated on a (previous) edge connecting two nodes of the cube
-        
-        allcoords_ranked = []        
-        for j in range(nodelen**self.NDim):
-            thisvec = self.BaseN(j, nodelen, self.NDim)
-            allinterven = allintervening(thisvec, cubelen)
-            nintervening =len(allinterven)
-            
-            allcoords_ranked.append((nintervening, allinterven, tuple(thisvec)))
-            if modall(thisvec, cubelen): 
-                oldcoord = [icomp//cubelen for icomp in thisvec]
-                thisnode = CoordNode[tuple(oldcoord)]
-                thiscoord = tuple(thisvec)                
-                if not(thisvec in alreadydone):
-                    alreadydone.append(tuple(thisvec))
-
-
-        
-        # now, get rig of the 2nd and 3rd components of allcoords_ranked, since we don't explicitly need them after they've been used in the sort
-        allcoords_ranked.sort()
-        newcoords = []
-        for x,y,z in allcoords_ranked:
-            newcoords.append((x, z))
-        allcoords_ranked = newcoords
-        # now, allcoords is ranked not only by sum or nonintervening, but also by the lowest intervening component
-
-
-
-        #if self.NNode == 1072:
-        #    import pdb; pdb.set_trace()
-        # now, try to see if there exist some nodes from adjacent and previously divided cubes (that we should therefore avoid trying to recreate)
-
-        already_crossed_off = []
-        previsum = 0
-        for isum,icoord in allcoords_ranked:
-            if icoord in alreadydone:
-                continue
-            if isum == 0:
-                print("Why is this not already in alreadydone? Get rid of this check if it never fails.")
-                import pdb; pdb.set_trace()
-                continue # if isum is zero, thie coord is one of the nodes
-            elif isum == 1:
-                # note that allcoords_ranked will in the case of isum==1, due to the extra ranking by minimum nonintervening component, always
-                # rank them in the way most needed
-                if icoord in already_crossed_off:
-                    continue
-
-                idim = firstintervening(icoord, cubelen)
-                adjcoord = list(icoord)
-                adjcoord[idim] -= 1
-                if not(tuple(adjcoord) in alreadydone):
-                    continue
-                
-                #import pdb; pdb.set_trace()
-                adjnode = newcoordnode[tuple(adjcoord)]
-                farcoord = list(icoord)
-                farcoord[idim] = cubelen
-                farnode = newcoordnode[tuple(farcoord)]
-
-                #if tuple(NodeCoord.keys()) == (15709, 15705, 15710, 15706) and self.NNode > 18340:
-                #    import pdb; pdb.set_trace()
-
-
-                adjnbrs = self.NodeVec[newcoordnode[tuple(adjcoord)]].Neighbors
-                if farnode in adjnbrs:
-                    # there are no pre-existing nodes along this edge;
-                    # add all other nodes along this edge to already_crossed_off and move on
-                    for idone in range(1,nodelen-1):
-                        #import pdb; pdb.set_trace()
-                        xtracoord = list(icoord)
-                        xtracoord[idim] = idone
-                        xtracoord = tuple(xtracoord)
-                        if not(xtracoord in already_crossed_off):
-                            already_crossed_off.append(xtracoord)
-                    continue               
-                for inbr in adjnbrs:      
-                    #if self.NNode  >= 1036:
-                    #    import pdb; pdb.set_trace()    
-
-    
-                    if inbr in newnodecoord.keys():
-                        continue
-
-                    farnbrs, bIsOK = self.FarNeighbor(adjnode, inbr, list(NodeCoord.keys()))
-                    if not(bIsOK):
-                        print("Why are we running FarNeighbor on questionable scenarios like connecting these nodes ", adjnode, inbr )
-                        import pdb; pdb.set_trace()
-                    
-                    if farnbrs[-1] != farnode:
-                        continue # we'll do the above farnbrs, but not now
-
-                    # note that this returns ALL the intervening nodes between the node at icoord and farnod
-                    lenfarnbrs = len(farnbrs)
-                    if lenfarnbrs < 2:
-                        print("What's going on here?")
-                        import pdb; pdb.set_trace()
-                    #if not(farnbrs[-1] in NodeCoord.keys()):
-                    #    continue
-
-                    if lenfarnbrs > 2:
-                        kcoord = list(icoord)
-                        for k in range(1, lenfarnbrs-1):
-                            kcoord[idim] = k
-
-                            newcoordnode[tuple(kcoord)] = farnbrs[k]
-                            newnodecoord[farnbrs[k]] = tuple(kcoord)
-                            alreadydone.append(tuple(kcoord))
-                            previsum = copy(isum) 
-                        break
-
-
-
-            else:   
-                if previsum != isum:
-                    vecintervening = [NIntervening(x, nodelen) for x in alreadydone]
-                    if not(isum-1 in vecintervening):
-                        # if we have not found any matchings for some previous (i.e. lower) isum, there is no point in looking forther
-                        # i.e. if no edges have been found to have intervening already-created nodes, there won't be any faces or anything with higher dimensions
-                        break
-                
-                if isum > self.NDim:
-                    # in 2d there can only be pre-existing edges (1-d objects), 
-                    # in 2d there can only be pre-existing edges and faces (1 and 2-d objects)
-                    # we will allow the isum==NDim case as an extra sanity check
-                    break
-                #find the two existing nodes which we will need to find intersection of
-                
-                relevantcoords = ToBeIntersected(icoord,  cubelen)
-                relevantneighbornodes = []
-                bFailed = False
-                for jcoord in relevantcoords:
-                    if not(jcoord in newcoordnode):
-                        bFailed = True
-                        break
-                    relevantnode = newcoordnode[jcoord]
-                    relevantneighbornodes.append( self.NodeVec[relevantnode].Neighbors )
-                
-                if bFailed:                     
-                    # for each value of isum  the corresponding nodes are a package deal -- either they all exist,
-                    #  or none exist, so the first time it fails, there is no point in going further
-                    continue
-                intersected = list(set(relevantneighbornodes[0]).intersection(*relevantneighbornodes[1:]))
-
-                copyintersected = copy(intersected)
-                for intnode in copyintersected:
-                    if intnode in newnodecoord.keys():
-                        intersected.remove(intnode)
-                
-
-
-                if len(intersected) != 1:
-                    continue # if you cannot find anything this far, no sense in going higher
-
-
-                if isum >= self.NDim:
-                    print("THERE ARE ALREADY INTERIOR POINTS IN THIS to-be-DIVIDED REGION -- the check-for-interior-nodes test failed. Fix it")
-                    import pdb; pdb.set_trace()
-                inode = intersected[0]
-                newcoordnode[thiscoord] = inode
-                newnodecoord[thisnode] = thiscoord
-                alreadydone.append(tuple(thiscoord))
-                previsum = copy(isum)
-
-
-
-
-
-
-        # do some checks -- delete section later
-
-
-        #BEGIN DELETE
-        #BEGIN DELETE
-        #BEGIN DELETE
-     
-        alreadydone_ranked = []
-        for j in alreadydone:
-            sumintervening = NIntervening(j, nodelen)
-            alreadydone_ranked.append((sumintervening, j))
-
-        alreadydone_ranked.sort()
-
-        #if Id == 1:
-        #    import pdb; pdb.set_trace()
-        if False and alreadydone_ranked[-1][0] == 0:
-            # this means that no already-created interior nodes (aside from the cube coords themselves) were found
-            nodeAvec = np.zeros((self.NDim,)).astype("int")
-            nodeA = coordnode[tuple(nodeAvec)]
-            nodeBvec = copy(nodeAvec)
-            nodeBvec[0] = 1
-            nodeB = coordnode[tuple(nodeBvec)]
-            nbrnodes = self.NodeVec[nodeA].Neighbors 
-            if not(nodeB in nbrnodes):
-                print("How is the once-removed vector not a neighbor of the zero node?")
-                import pdb; pdb.set_trace()
-
-
-        #END DELETE
-        #END DELETE
-        #END DELETE
-
-
-        #if self.NNode >= 21100:
-        #    print("17740")
-            #import pdb; pdb.set_trace()
-        
-        # now, create the new nodes that don't exist, give them the right neighbors, and you'll be done  
-        for j in range(nodelen**self.NDim):
-            thisvec = self.BaseN(j, nodelen, self.NDim)
-            if tuple(thisvec) in alreadydone:
-                continue
-            # DELETE THE NEXT 2 LINES -- REDUNDANT since all nodes that pass that test are already in alreadydone
-            if modall(thisvec, cubelen):                   
-                continue # if they're all modulo cubelen, that means they were in the starting set
-            
-
-
-            thisnode = self.CreateNode()
-
-            thistuple = tuple(thisvec)
-
-            
-
-            newcoordnode[thistuple] = thisnode.Id
-            newnodecoord[thisnode.Id] = thistuple
-            if bHistory:
-
-                if thisnode.Coords is None:
-                    crds, ratcrds = GetCoords(thistuple, Id, nslices, axisedges, CoordNode, NodeCoord)
-                    thisnode.Coords = crds
-                    #thisnode.RatCoords = ratcrds
-
-                    for ind in self.NodeVec:
-                        if ind.Id == thisnode.Id:
-                            continue
-                        if np.sum(np.abs(np.array(ind.Coords) - np.array(thisnode.Coords))) < 10e-9:                            
-                            print("Possibly identical coords? ", thisnode.Id, ind.Id, "GET RID OF THIS TEST AFTER DEBUGGING; IT MUST NOT REMAIN")
-                            #import pdb; pdb.set_trace()
-                else:
-                    print("why are we here -- we should only be looping through new nodes that don't have coords")
-       
-        # now delete whichever old neighbors are part of the original (unsliced) cube        
-        for key, val in NodeCoord.items():
-
-            thisnode = key
-            thisvec = list(val)
-            thesenbrs = copy(self.NodeVec[thisnode].Neighbors)
-
-            for nbr in thesenbrs:
-                if nbr in NodeCoord.keys():
-                    self.NodeVec[thisnode].Neighbors.remove(nbr)
-
-            self.NodeVec[thisnode].Neighbors.sort()
-
-
-        # Note the number of neighbors depends on the number of components in the vector that are 0 or nslices;
-        # if that number zero, we're in the interior of the crube and the number of neighbors is 2*D, if it's 1 then
-        # we're (in 3d) in the middle of  face then there are only 2*D-1, if it's 2 then it's 2*D-2, etc.
-
-
-
-
-        for j in range(nodelen**self.NDim):
-            thisvec = self.BaseN(j, nodelen, self.NDim)
-            thisnode = newcoordnode[tuple(thisvec)]
-
-
-            for iiv, iv in enumerate(thisvec):
-                nbrvecUp = list(copy(thisvec))
-                nbrvecDn = list(copy(thisvec))
-
-                nbrvecUp[iiv] = iv + 1 # if greater than cubelen, then Up nbr already exists from before, and we leave this alone
-                if iv + 1 <= cubelen:
-                    nbrnodeUp = newcoordnode[tuple(nbrvecUp)]
-                    if not(nbrnodeUp in self.NodeVec[thisnode].Neighbors):
-                        # it's already in there from some adjacent cube-division
-                        nbrnodeUp_prevA = copy(nbrvecUp)       
-                        nbrnodeUp_prevB = copy(nbrvecUp)                
-                        nbrnodeUp_prevA[iiv] = 0
-                        nbrnodeUp_prevB[iiv] = cubelen
-                        nodeId_prevA = newcoordnode[tuple(nbrnodeUp_prevA)]
-                        nodeId_prevB = newcoordnode[tuple(nbrnodeUp_prevB)]
-
-                        self.NodeVec[thisnode].Neighbors.append(nbrnodeUp)
-
-                        if len(self.NodeVec[thisnode].Neighbors) > 2*self.NDim:
-                            print("Neighbor count exceeded -- more than 2 * Dim? -- DELETE THIS CHECK")
-                            import pdb; pdb.set_trace()
-
-
-                nbrvecDn[iiv] = iv - 1 # if less than 0, then dn nbr already exists from before, and we leave this alone
-                if iv - 1 >= 0:                    
-                    nbrnodeDn = newcoordnode[tuple(nbrvecDn)]
-                    self.NodeVec[thisnode].Neighbors
-                    if not(nbrnodeDn in self.NodeVec[thisnode].Neighbors):
-                        #continue # it's already in there from some adjacent cube-division
-                        nbrnodeDn_prevA = copy(nbrvecDn)     
-                        nbrnodeDn_prevB = copy(nbrvecDn)
-                        nbrnodeDn_prevA[iiv] = 0
-                        nbrnodeDn_prevB[iiv] = cubelen
-                        nodeId_prevA = newcoordnode[tuple(nbrnodeDn_prevA)]
-                        nodeId_prevB = newcoordnode[tuple(nbrnodeDn_prevB)]
-
-                        prevnbrs = [nodeId_prevA, nodeId_prevB]
-                        prevnbrs.sort()
-                        self.NodeVec[thisnode].Neighbors.append(nbrnodeDn)
-
-                        if len(self.NodeVec[thisnode].Neighbors) > 2 * self.NDim:
-                            print("Neighbor count exceeded -- more than 2 * Dim? -- DELETE THIS CHECK")
-                            import pdb; pdb.set_trace()
-
-            self.NodeVec[thisnode].Neighbors.sort()
-
-        for coord,node in newcoordnode.items():
-            if len(self.NodeVec[node].Neighbors) == 2:
-                print("too low")
-                import pdb; pdb.set_trace()
-            
-            self.NodeVec[node].LastDivide = self.NDivisions
-        self.NDivisions += 1
-        #print("done with divide")
-                
-
 
 
 
@@ -2958,14 +2487,10 @@ class cubenodeset_t():
             #    import pdb; pdb.set_trace()
 
             
-            coordnode, nodecoord = self.BruteFindCubeCoord(Id, iax, icombo, pathdump, pathdumpgeneration, gen0len, TestForInteriorPoints, sortbyones)
+            coordnode, nodecoord, coord_path = self.BruteFindCubeCoord(Id, iax, icombo, pathdump, pathdumpgeneration, gen0len, TestForInteriorPoints, sortbyones)
             if not(coordnode is None):
-                myretval.append((coordnode, nodecoord))  
+                myretval.append((coordnode, nodecoord, coord_path))  
 
-        #if len(myretval) == 0 and self.NNode > 1000:
-        #    print("Why no well-formed cubes?")
-        #    import pdb; pdb.set_trace()
-            coordnode, nodecoord = self.BruteFindCubeCoord(Id, iax, icombo, pathdump, pathdumpgeneration, gen0len, TestForInteriorPoints, sortbyones)
             
             
         print("Well-formed cubes wth count", len(myretval), "at", Id, len(myretval), [i[0] for i in myretval])
@@ -4268,7 +3793,7 @@ class cubenodeset_t():
 
         if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
             #print("ERROR --  the corners of the cube do not have 2*D neighbors?")
-            return None, None         
+            return None, None, None         
     
         bUsingFarNeighbor = False # if any of the 2**D edges are farnbrs as opposed to nearest neighbors, do not need to test for interior nodes
 
@@ -4309,7 +3834,6 @@ class cubenodeset_t():
         zerocoord = tuple([0 for i in range(self.NDim)])
         for iic, iipath in enumerate(pathdump_index_subset):        
             thiscoord = sortbyones[1 + iic][1]
-            #coord_path[thiscoord] = [({zerocoord:iipath}, pathdump[iipath][-1])] # note that as written, the list will only have
             coord_path[thiscoord] = [((iipath,), pathdump[iipath][-1])]
             coord_pathx[thiscoord] = [({zerocoord:iipath}, pathdump[iipath][-1])]
             # one element for coords whose sum1==1, but higher ones may have more elements than one so we will mk it a list
@@ -4337,60 +3861,24 @@ class cubenodeset_t():
                         bItIsEmpty = True
                         break
                     
-                    # old version -- deprecation watch
-                    #for ip in coord_path[itup]:
-                    #    ipextra, ipextraxold = self.AddSegment(ip, pathdump, pathdumpgeneration)
-                        #print("bbb", ipextra, ipextraxold)
-                    #    if not(ipextra is None):
-                    #        tobeintersected[itup] = ipextra
-
-
                     # new version    
                     for ip in coord_pathx[itup]:
                         ipextrax = self.AddSegmentx(ip, pathdump, pathdumpgeneration)
                         if not(ipextrax is None):
                             tobeintersectedx[itup] = ipextrax
 
-                    
 
-                            
                 if bItIsEmpty:
                     continue
 
-
-
-                #if np.min([ len(i)  for i in tobeintersected.values()]) == 0:
-                #    return None, None
                 if np.min([ len(i)  for i in tobeintersectedx.values()]) == 0:
-                    return None, None
+                    return None, None, None
 
-                
-                #import pdb; pdb.set_trace()
-                #coord_path[binvec], coord_pathx[binvec] = self.SimpleIntersection(tobeintersected)
                 coord_pathx[binvec] = self.SimpleIntersectionx(tobeintersectedx)
 
-
-                #HEREISWHEREYOUMANDATEONLY1SCENARIOPERKEY here is where you mandate only one scenario per key
-
-                #if len(coord_path[binvec]) == 0:
-                #    return None, None
                 if len(coord_pathx[binvec]) == 0:
-                    return None, None
-
-                #if len(coord_path[binvec]) == 0:
-                #    coord_path[binvec] = []
-                #    continue
-                
-                #if len(coord_path[binvec]) > 1:
-                    #print("More than one possible?", nbrsubset)
-                    #import pdb; pdb.set_trace()
-                #    pass
-
-
-                #if len(coord_pathx[binvec]) == 0:
-                #    coord_pathx[binvec] = []
-                #    continue
-                
+                    return None, None, None
+              
                 if len(coord_pathx[binvec]) > 1:
                     #print("More than one possible?", nbrsubset)
                     #import pdb; pdb.set_trace()
@@ -4450,27 +3938,11 @@ class cubenodeset_t():
             #if (Id == 2055 and self.NNode == 7816):
             #    print("paths between 2039/2018 and 2018/2036 (i.e. 001/011 and 011/010 both contain 2021, as in [2039, 2025, 2021, 2018] and [2018, 2021, 2022, 2036]")
             #    import pdb; pdb.set_trace()
-            #if not(bAllPathsDistinct(sub_coord_path)):
-            #    continue
             if not(bAllPathsDistinctx(sub_coord_pathx)):
                 print("Not all distinct:", coord_pathx)
                 #import pdb; pdb.set_trace()
                 continue
 
-
-
-            """
-            nremaining = []
-            for key,val in sub_coord_path.items():
-                nremaining.append(len(val))
-            if np.min(nremaining) == 0:
-                print("yyy")
-                import pdb; pdb.set_trace()
-                continue
-            """
-
-            
-            
             nremaining = []
             for key,val in sub_coord_pathx.items():
                 nremaining.append(len(val))
@@ -4478,21 +3950,8 @@ class cubenodeset_t():
                 import pdb; pdb.set_trace()
                 continue
 
-
             newcoordnode = {node0:Id}
             newnodecoord = {Id:node0}
-
-            
-            """
-            for icoord in coord_path.keys():
-                if len(sub_coord_path[icoord]) > 1:
-                    print("Why was this not pruned?")
-                    import pdb; pdb.set_trace()
-                thisendpt = sub_coord_path[icoord][0][-1]
-                newcoordnode[icoord] = thisendpt
-                newnodecoord[thisendpt] = icoord
-            """
-
             
             for icoord in coord_pathx.keys():
                 if len(sub_coord_pathx[icoord]) > 1:
@@ -4506,8 +3965,6 @@ class cubenodeset_t():
             
             if len(newnodecoord) != 2**self.NDim: # this happens (rarely) when the corner nodes of the cube are nondistinct, so that one or more entries get overwritten resulting in less than 2**D entries
                     continue
-            
-            
 
             # now, check that all the nodes connecting edges of the cube are distinct          
             # remember, all keys have a list of 1 element at this point  
@@ -4562,17 +4019,13 @@ class cubenodeset_t():
           
             if bStllAGoodContender and not(bAllAreNear):
                 # Either all the sourrounding cubes are divided, or else the cube itself is divided, so test if there is an interior node            
-                #corners = GetCorners(sub_coord_path, newcoordnode, newnodecoord, pathdump, pathdumpgeneration)
                 cornersx = GetCornersx(sub_coord_pathx, newcoordnode, newnodecoord, pathdump, pathdumpgeneration)
-                #if corners is None:
-                    #bGoodContender = False
-                #    return None, None
                 if cornersx is None:
                     #bGoodContender = False
-                    return None, None
+                    return None, None, None
 
                 if len(list(cornersx.values())) != len(set(cornersx.values())):
-                    return None, None
+                    return None, None, None
 
                 if not(cornersx is None):
                     for inode, tupaxissubset in cornersx.items():
@@ -4590,17 +4043,14 @@ class cubenodeset_t():
         if len(good_coordnode_nodecoord_pairs) > 1:
             print("multiple possibilities for coordnode and nodecoord? Will return None, None but find out why this is happening. ")
             import pdb; pdb.set_trace()
-            return None, None
+            return None, None, None
         elif len(good_coordnode_nodecoord_pairs) == 1:
             (newcoordnode, newnodecoord) = good_coordnode_nodecoord_pairs[0]
-            #if Id == 1087:
-            #    print("1087 returns 1 good pair for ", nbrsubset)
-            #    import pdb; pdb.set_trace()
-            return newcoordnode, newnodecoord
+            return newcoordnode, newnodecoord, sub_coord_pathx
         else:
             #print("no good cubes available at", Id, self.NodeVec[Id].Coords, nbrsubset)
             #import pdb; pdb.set_trace()
-            return None, None
+            return None, None, None
                 
         
 
@@ -4878,11 +4328,11 @@ class cubenodeset_t():
             for inode in ishuf: #range(bottomrun, toprun):
 
 
-                coordnode_nodecoord_list = self.ReturnAllWellFormedCubes(inode)
+                coordnode_nodecoord_coordpath_list = self.ReturnAllWellFormedCubes(inode)
 
-                rn.shuffle(coordnode_nodecoord_list)
+                rn.shuffle(coordnode_nodecoord_coordpath_list)
                 dellist = []
-                for iielement, ielement in enumerate(coordnode_nodecoord_list):
+                for iielement, ielement in enumerate(coordnode_nodecoord_coordpath_list):
 
                     if not(self.bIsNonUniform(ielement[0])):
                         if rn.random() > FreshProb:
@@ -4897,15 +4347,15 @@ class cubenodeset_t():
                 if len(dellist) > 0:
                     dellist.reverse()
                     for idel in dellist:
-                        del coordnode_nodecoord_list[i]
+                        del coordnode_nodecoord_coordpath_list[i]
                     
-                if len(coordnode_nodecoord_list) == 0:
+                if len(coordnode_nodecoord_coordpath_list) == 0:
                     #print("No good coords at point ", inode, " for any possible set of axes there")
                     continue
 
 
                  # it has already been shuffled, so you can just return the last one.
-                coords, noodes = coordnode_nodecoord_list[0]
+                coords, noodes, coordpath = coordnode_nodecoord_coordpath_list[0]
 
                     
                  
@@ -4954,10 +4404,7 @@ class cubenodeset_t():
                     import pdb; pdb.set_trace()
                     self.bCubeIntegrityCheck(coords)
 
-                self.BruteDivideCube(coords, noodes)
-
-
-
+                self.BruteDivideCube(coords, noodes, coordpath)
 
                 ndivisions += 1
                 if self.NNode > MaxNodes:
