@@ -1088,8 +1088,33 @@ class cubenodeset_t():
         # average number of nodes in any region of space is uniform throughout the space sp that
         # Fick's laws can be applied.
 
+        self.NeighborDistanceCount = {}
+
 
         #self.AllDirections = list(np.arange(1,self.NDim+1)) +  list(np.arange(-1,-self.NDim-1,-1))
+
+
+    def UpdateNeighborDistanceCount(self):
+        #if self.NNode > 1000:
+        #    import pdb; pdb.set_trace()
+
+        self.NeighborDistanceCount = {}
+        for iinode, inode in enumerate(self.NodeVec):
+            x = np.array(inode.Coords)            
+            for inbr in inode.Neighbors:
+                thisdist = np.linalg.norm((np.array(self.NodeVec[inbr].Coords)) - x)
+                if thisdist > 4:
+                    thisdist -= 8
+                    thisdist = np.abs(thisdist)
+                thisinvdist = np.round(1.0/thisdist)
+                if not(thisinvdist in self.NeighborDistanceCount):
+                    self.NeighborDistanceCount[thisinvdist] = 1
+                else:
+                    self.NeighborDistanceCount[thisinvdist] += 1
+
+        print("Hist update for nnode count", self.NNode)
+        for key, val in sorted(self.NeighborDistanceCount.items()):
+            print("d", key, val)
 
     def SumAmp(self,bPrint=True):
         myret = np.sum([inode.Amplitude for inode in self.NodeVec])
@@ -1675,8 +1700,6 @@ class cubenodeset_t():
 
 
 
-        #if self.NNode == 1072:
-        #    import pdb; pdb.set_trace()
         # now, try to see if there exist some nodes from adjacent and previously divided cubes (that we should therefore avoid trying to recreate)
 
         already_crossed_off = []
@@ -1693,6 +1716,12 @@ class cubenodeset_t():
                 # rank them in the way most needed
                 if icoord in already_crossed_off:
                     continue
+
+
+                if Id == 1859 and self.NNode >= 13150:
+                    print("interior test has to fail")
+                    import pdb; pdb.set_trace()
+
 
                 idim = firstintervening(icoord, cubelen)
                 adjcoord = list(icoord)
@@ -1721,7 +1750,12 @@ class cubenodeset_t():
                         xtracoord = tuple(xtracoord)
                         if not(xtracoord in already_crossed_off):
                             already_crossed_off.append(xtracoord)
-                    continue               
+                    continue      
+
+
+
+
+
                 for inbr in adjnbrs:      
                     #if self.NNode  >= 1036:
                     #    import pdb; pdb.set_trace()    
@@ -1735,10 +1769,13 @@ class cubenodeset_t():
                     pathdump = self.BruteNeighborSearch(iPath, self.NSlices+2)
                     goodpaths = []
                     for ipath in pathdump:
-                        if ipath[-1] in NodeCoord:
+                        # must check that endpoint is a corder 
+                        # and that the beginning/endpt aren't nearest neighbors 
+                        # (which would mean the path is some near-loop and and is not linear)
+                        if ipath[-1] in NodeCoord and not(ipath[-1] in self.NodeVec[ipath[0]].Neighbors and len(ipath) > 2):
                             goodpaths.append(ipath)
                     if len(goodpaths) > 1:
-                        print("why are there multiple far neighbors?")
+                        print("ERROR: why are there multiple far neighbors that are suitable; will arbitarily pick one")
                         import pdb; pdb.set_trace()
                     elif len(goodpaths) == 0:
                         farnbrs = iPath
@@ -1774,20 +1811,29 @@ class cubenodeset_t():
 
 
             else:   
+                if Id == 1859 and self.NNode >= 13150:
+                    print("interior test has to fail")
+                    import pdb; pdb.set_trace()
+
                 if previsum != isum:
                     vecintervening = [NIntervening(x, nodelen) for x in alreadydone]
                     if not(isum-1 in vecintervening):
                         # if we have not found any matchings for some previous (i.e. lower) isum, there is no point in looking forther
                         # i.e. if no edges have been found to have intervening already-created nodes, there won't be any faces or anything with higher dimensions
+                        #import pdb; pdb.set_trace()
                         break
-                
-                if isum > self.NDim:
+                if isum >= self.NDim:
+                    #print("IF YOU ARE HERE, IT MEANS THERE ARE ALREADY INTERIOR POINTS IN THIS to-be-DIVIDED REGION -- i.e. the check-for-interior-nodes test failed. Fix it")
+                    #import pdb; pdb.set_trace()
                     # in 2d there can only be pre-existing edges (1-d objects), 
                     # in 2d there can only be pre-existing edges and faces (1 and 2-d objects)
                     # we will allow the isum==NDim case as an extra sanity check
-                    break
+                    
+                    # you're done since there has already been a check for interior points
+                    break                
+
                 #find the two existing nodes which we will need to find intersection of
-                relevantcoords = ToBeIntersected(icoord,  nodelen)
+                relevantcoords = ToBeIntersected(icoord, cubelen)
                 relevantneighbornodes = []
                 bFailed = False
                 for jcoord in relevantcoords:
@@ -1800,7 +1846,10 @@ class cubenodeset_t():
                 if bFailed:                     
                     # for each value of isum  the corresponding nodes are a package deal -- either they all exist,
                     #  or none exist, so the first time it fails, there is no point in going further
-                    break
+                    continue
+
+
+
                 intersected = list(set(relevantneighbornodes[0]).intersection(*relevantneighbornodes[1:]))
 
                 copyintersected = copy(intersected)
@@ -1814,13 +1863,11 @@ class cubenodeset_t():
                     continue # if you cannot find anything this far, no sense in going higher
 
 
-                if isum >= self.NDim:
-                    print("THERE ARE ALREADY INTERIOR POINTS IN THIS to-be-DIVIDED REGION -- the check-for-interior-nodes test failed. Fix it")
-                    import pdb; pdb.set_trace()
+
                 inode = intersected[0]
-                newcoordnode[thiscoord] = inode
-                newnodecoord[thisnode] = thiscoord
-                alreadydone.append(tuple(thiscoord))
+                newcoordnode[icoord] = inode
+                newnodecoord[inode] = icoord
+                alreadydone.append(tuple(icoord))
                 previsum = copy(isum)
 
 
@@ -1897,7 +1944,7 @@ class cubenodeset_t():
                             continue
                         if np.sum(np.abs(np.array(ind.Coords) - np.array(thisnode.Coords))) < 10e-9:                            
                             print("Possibly identical coords? ", thisnode.Id, ind.Id, "GET RID OF THIS TEST AFTER DEBUGGING; IT MUST NOT REMAIN")
-                            #import pdb; pdb.set_trace()
+                            import pdb; pdb.set_trace()
                 else:
                     print("why are we here -- we should only be looping through new nodes that don't have coords")
        
@@ -2198,7 +2245,7 @@ class cubenodeset_t():
                 adjnbrs = self.NodeVec[newcoordnode[tuple(adjcoord)]].Neighbors
                 if farnode in adjnbrs:
                     # there are no pre-existing nodes along this edge;
-                    # add all other nodes along this edge and move on
+                    # add all other nodes along this edge to already_crossed_off and move on
                     for idone in range(1,nodelen-1):
                         #import pdb; pdb.set_trace()
                         xtracoord = list(icoord)
@@ -2258,7 +2305,8 @@ class cubenodeset_t():
                     # we will allow the isum==NDim case as an extra sanity check
                     break
                 #find the two existing nodes which we will need to find intersection of
-                relevantcoords = ToBeIntersected(icoord,  nodelen)
+                
+                relevantcoords = ToBeIntersected(icoord,  cubelen)
                 relevantneighbornodes = []
                 bFailed = False
                 for jcoord in relevantcoords:
@@ -2271,7 +2319,7 @@ class cubenodeset_t():
                 if bFailed:                     
                     # for each value of isum  the corresponding nodes are a package deal -- either they all exist,
                     #  or none exist, so the first time it fails, there is no point in going further
-                    break
+                    continue
                 intersected = list(set(relevantneighbornodes[0]).intersection(*relevantneighbornodes[1:]))
 
                 copyintersected = copy(intersected)
@@ -2830,6 +2878,7 @@ class cubenodeset_t():
                         #else:
                             #alreadydone[(iidump, len(pathdump)-1)] = False
 
+
         # now, delete any "long" paths that have identical endpoints 
         # (any "short" paths -- i.e. nearest neighbor paths -- will of necessity be unique)
         dellist = []
@@ -2843,7 +2892,7 @@ class cubenodeset_t():
                 jendpts = [jpath[0], jpath[-1]]
                 jendpts.sort()
                 jendpts = tuple(jendpts)
-                if iendpts == jendpts:
+                if iendpts == jendpts and pathdumpgeneration[iipath] == pathdumpgeneration[jjpath]:
                     if len(jpath) > 2:
                         dellist.append(jjpath)
                     if len(ipath) > 2:
@@ -2908,9 +2957,17 @@ class cubenodeset_t():
             #    print("aaa")
             #    import pdb; pdb.set_trace()
 
+            
             coordnode, nodecoord = self.BruteFindCubeCoord(Id, iax, icombo, pathdump, pathdumpgeneration, gen0len, TestForInteriorPoints, sortbyones)
             if not(coordnode is None):
                 myretval.append((coordnode, nodecoord))  
+
+        #if len(myretval) == 0 and self.NNode > 1000:
+        #    print("Why no well-formed cubes?")
+        #    import pdb; pdb.set_trace()
+            coordnode, nodecoord = self.BruteFindCubeCoord(Id, iax, icombo, pathdump, pathdumpgeneration, gen0len, TestForInteriorPoints, sortbyones)
+            
+            
         print("Well-formed cubes wth count", len(myretval), "at", Id, len(myretval), [i[0] for i in myretval])
         return myretval
 
@@ -3629,7 +3686,7 @@ class cubenodeset_t():
 
 
 
-    def AddSegment(self, prevsegment, pathdump, pathdumpgeneration):
+    def DEPRECATEDAddSegment(self, prevsegment, pathdump, pathdumpgeneration):
 
         def ConcatPaths(ptup, pathdump):
             myretval = copy(pathdump[ptup[0]])#[1:] 
@@ -3673,8 +3730,55 @@ class cubenodeset_t():
                     myretvalx.append([thisseq, ip[-1]])
         return myretval, myretvalx  
 
+    def AddSegmentx(self, prevsegment, pathdump, pathdumpgeneration):
+        """
+        def ConcatPaths(ptup, pathdump):
+            myretval = copy(pathdump[ptup[0]])#[1:] 
 
-    def SimpleIntersection(self, PathSegments):
+            if len(ptup) > 1:
+                for ip in ptup[1:]:
+                    myretval.extend( pathdump[ip] )
+            
+            return myretval
+        """
+
+        def RangeGeneration(whichgeneration, pathdumpgeneration):
+            if whichgeneration == 0:
+                n = len([i==0 for i in pathdumpgeneration])
+                return (0, n)
+            nprev = np.sum([i<=(whichgeneration-1) for i in pathdumpgeneration])
+            n = nprev + np.sum([ i == whichgeneration for i in pathdumpgeneration[nprev:]])
+            return (nprev, n)
+
+
+        for key, ipath in prevsegment[0].items():
+            whichgen = np.sum(key) + 1 # because the argument is PREsegment, the generation is actually one plus that.
+            segmentA = pathdump[ipath]
+            break
+
+            
+
+
+        myretvalx = []            
+        endpt = segmentA[-1]            
+        ifrom, ito = RangeGeneration(whichgen, pathdumpgeneration)
+        iip = ifrom - 1
+
+        
+        for ip in pathdump[ifrom:ito]:
+            iip += 1
+            if ip[0] == endpt:
+                #thisseq = list(prevsegment[0]) + [iip]
+                #thisseqx = iip
+                segmentB = pathdump[iip][1:]
+                intersected =  list(set(segmentA).intersection(segmentB))  
+                if len(intersected) == 0:
+                    #myretval.append([tuple(thisseq), ip[-1]])
+                    myretvalx.append((iip, ip[-1]))
+        
+        return myretvalx  
+
+    def DEPRECATEDSimpleIntersection(self, PathSegments):
         myretval = []
         myretvalx = []
 
@@ -3714,6 +3818,43 @@ class cubenodeset_t():
             dictit.Increment()    
                 
         return myretval, myretvalx
+
+
+    def SimpleIntersectionx(self, PathSegments):
+        myretvalx = []
+
+        countbykeys = copy(PathSegments)
+        for key in PathSegments.keys():
+            countbykeys[key] = len(PathSegments[key])
+
+        dictit = dictionaryiterator_t(countbykeys)
+
+        for iic in range(dictit.Period):
+            thisdict = copy(dictit.Current)
+            thisendpt = -1
+            thisentryx = {}
+
+            bMatchForEveryKey = True
+            for key in thisdict.keys():
+                ival = PathSegments[key][dictit.Current[key]]
+                if thisendpt < 0:
+                    thisendpt = ival[-1]
+                    thisentryx[key] = ival[0]
+                else:
+                    if ival[-1] != thisendpt:
+                        bMatchForEveryKey = False
+                        break
+                    else:
+                        #thisentry.append(ival[0])
+                        thisentryx[key] = ival[0]
+                
+                    
+            if bMatchForEveryKey:
+                # check for redundant entries
+                myretvalx.append((thisentryx, thisendpt))
+            dictit.Increment()    
+                
+        return myretvalx
 
     def bBruteFindInterior(self, Id, nbrs, sortbyones=None):
 
@@ -3762,8 +3903,8 @@ class cubenodeset_t():
             thiscoord = sortbyones[1 + iic][1]
             #[((iipath, ), pathdump[iipath][-1])] 
 
-            coord_path[thiscoord] = [ ((iic,), nbrs[iic]) ] 
-            coord_pathx[thiscoord] = [ {zerocoord:iic}, nbrs[iic] ]   #we will retain the more elaborate format used in other routines even though things are simpler here since all segments must have 2 elements
+            #coord_path[thiscoord] = [ ((iic,), nbrs[iic]) ] 
+            coord_pathx[thiscoord] = [({zerocoord:iic}, nbrs[iic])]   #we will retain the more elaborate format used in other routines even though things are simpler here since all segments must have 2 elements
     
             # one element for coords whose sum1==1, but higher ones may have more elements than one so we will mk it a list
             # in this case, too
@@ -3777,57 +3918,57 @@ class cubenodeset_t():
 
             if sum1 >= 2:
 
-                print("Ch3ck this")
-                import pdb; pdb.set_trace()
-                tobeintersected = {}
+
+                #if (Id == 4944 and self.NNode == 6192):
+                #    import pdb; pdb.set_trace()
+
+                #tobeintersected = {}
                 tobeintersectedx = {}
 
                 thesecoords = self.DecomposeBinaryIntoSmallerDimensionalBinaries(binvec)
 
-
+                #import pdb; pdb.set_trace()
                 bItIsEmpty  = False
                 for itup in thesecoords:
-                    if len(coord_path[itup]) == 0:
-                        coord_path[tuple(binvec)] = []
-                        #coord_pathx[tuple(binvec)] = []
+                    if len(coord_pathx[itup]) == 0:
+                        #coord_path[tuple(binvec)] = []
+                        coord_pathx[tuple(binvec)] = []
                         bItIsEmpty = True
                         break
                     
-                    for ip in coord_path[itup]:
-                        ipextra, ipextrax = self.AddSegment(ip, pathdump, pathdumpgeneration)
-                        if not(ipextra is None):
-                            tobeintersected[itup] = ipextra
+
+                    for ip in coord_pathx[itup]:
+                        
+                        ipextrax = self.AddSegmentx(ip, pathdump, pathdumpgeneration)
+                        if not(ipextrax is None):
+                            #tobeintersected[itup] = ipextra
                             tobeintersectedx[itup] = ipextrax
 
                 if bItIsEmpty:
                     continue
             
                 
-                if np.min([ len(i)  for i in tobeintersected.values()]) == 0:
-                    return False
+                #if np.min([ len(i)  for i in tobeintersected.values()]) == 0:
+                #    return False
                 if np.min([ len(i)  for i in tobeintersectedx.values()]) == 0:
                     return False
 
-                coord_path[binvec], coord_pathx[binvec] = self.SimpleIntersection(tobeintersected)
-                if len(coord_path[binvec]) == 0:
-                    return False
-
-                if len(coord_path[binvec]) == 0:
-                    coord_path[binvec] = []
-                    continue
+                #import pdb; pdb.set_trace()
+                coord_pathx[binvec] = self.SimpleIntersectionx(tobeintersectedx)
+                #if len(coord_path[binvec]) == 0:
+                #    return False
 
                 if len(coord_pathx[binvec]) == 0:
-                    coord_pathx[binvec] = []
-                    continue                
+                    return False          
+
                 if len(coord_pathx[binvec]) > 1:
-                    pass
-                    #print("More than one possible?", nbrsubset)
+                    print("ERROR in bBruteFindInterior: More than one possible even when all the paths are two-tuple nearest neighbors?", nbrsubset)
                     #import pdb; pdb.set_trace()
 
 
         
         contenders = []
-        NContenders = len(coord_path[self.OnesCoord])
+        NContenders = len(coord_pathx[self.OnesCoord])
         if NContenders > 1:
             print("why is bBruteFindInterior finding multiple interior nodes even when all the edges are nearest neighbors?")
             import pdb; pdb.set_trace()
@@ -3866,7 +4007,48 @@ class cubenodeset_t():
             return myret
 
 
+        def GetEdgeDict(sub_coord_pathx):
+            # since this occurs after pruning, we assume that all lists in sub_coord_pathx have only one element
+            edge_dict = {}
+            for ikey, ilist in sub_coord_pathx.items():
+                subdict = ilist[0][0]
+                for isubkey, ipathind in subdict.items():
+                    newlist = [ikey, isubkey]
+                    newlist.sort()
+                    newtup = tuple(newlist)
+                    edge_dict[newtup] = ipathind
+            return edge_dict
+        
+        def bSomeInterveningPathNodesAreNeighbors(edge_dict, pathdump):
+            allintervening = []
+            sortkeys = list(edge_dict.keys())
+            sortkeys.sort()
+        
+            for i in range(len(sortkeys)):
+                itup = sortkeys[i]
+                ipathind = edge_dict[itup]
+                ipath = pathdump[ipathind]
 
+                if len(ipath) == 2:
+                    continue
+                iinterven = ipath[1:-1]
+                iinterven_nbrs = []
+                for inode in iinterven:
+                    iinterven_nbrs.extend(self.NodeVec[inode].Neighbors)
+
+                for j in range(len(sortkeys)):
+                    if j == i:
+                        continue
+                    jtup = sortkeys[j]
+                    jpathind = edge_dict[jtup]
+                    jpath = pathdump[jpathind]
+                    if len(jpath) == 2:
+                        continue
+                    jjinterven = jpath[1:-1]
+                    intersected = list(set(iinterven_nbrs).intersection(jjinterven))
+                    if len(intersected) > 0:
+                        return True
+            return False
 
         def AllInRemaining(listofpathtuples, remainingpaths):
             for itup in listofpathtuples:
@@ -3875,93 +4057,78 @@ class cubenodeset_t():
                         return False
             return True
 
-        def PruneASingleContender(SubCoord_path):
+
+
+
+        def PruneASingleContenderx(SubCoord_pathx, pathdump):
             # now prune the segments with low sum1 that don't get used in paths associated with higher sum1
-            keys = list(SubCoord_path.keys())
-            keys.sort()
-
-            maxkey = max(keys) # this is just the (1,1,..) key
-            neededpaths = []
-            for itup in SubCoord_path[maxkey][0][:-1]:
-                for i in itup:
-                    if not i in neededpaths:
-                        neededpaths.append(i)
-
-            killlist = []
+            keys = list(SubCoord_pathx.keys())
+            ones_keys =[]
             for ikey in keys:
-                
-                for iilist,ilist in enumerate(SubCoord_path[ikey]):
-                    bGoodList = True
-                    for itup in ilist[:-1]:
-                        if bGoodList:
-                            for ipath in itup:
-                                if not(ipath in neededpaths):
-                                    bGoodList = False
-                                    break
-                    if not(bGoodList):
-                        killlist.append((ikey,iilist)) 
-            killlist.sort()
-            killlist.reverse()
-            for ikey,ilist in killlist:
-                del SubCoord_path[ikey][ilist]
-            return SubCoord_path
+                ones_keys.append((np.sum(ikey), ikey))
 
 
+            ones_keys.sort()
+            maxkey = ones_keys[-1][1]
+            ones_keys.reverse()
 
-        def bAllPathsDistinct(SubCoord_path):
-            """
-            note that the "implicit" paths that are formed by way of mutual intersection of existing paths in pathdump are not necessarily in pathdump
-            and some may be illegal (because the paths contain nodes used in other implicit paths); those will be weeded out in the GetCorners routine
-            """
+            for sum1, key in ones_keys:
+                if sum1 == 1:
+                    continue # we've already checked that the axis nodes are distinct.
+                subkeys = SubCoord_pathx[key][0][0].keys()
 
-            # now prune the segments with low sum1 that don't get used in paths associated with higher sum1
-            keys = list(SubCoord_path.keys())
-            keys.sort()
+                for isubkey in subkeys:
+                    dellist = []
 
-            maxkey = max(keys)
-            edgepaths = []
-            for itup in SubCoord_path[maxkey][:-1]:
-                for ipathindex in itup:
-                    if not ipathindex in neededpaths: # note edgepath has no repetitions
-                        edgepaths.append(ipathindex)
+                    try:
+                        for iscenario in range(len(SubCoord_pathx[isubkey])):
+                            if len(SubCoord_pathx[isubkey]) <= 1:
+                                continue                        
+                            thisendpt = SubCoord_pathx[isubkey][iscenario][-1]
 
-            # check that all "inside" edge nodes belong only to one edge
-            intervening_nodes = []
-            for ipathindex in edgepaths:
-                ipath = pathdump[ipath]
-                if len(ipath) > 0:
-                    intervening_nodes.append(ipath[1:-1])
-            if len(intervening_nodes) > 1:
-                intersected = list(set(intervening_nodes[0]).intersection(*intervening_nodes[1:]))
-            
-                return len(intersected) == 0
-            
-            return True
+                            pathind = SubCoord_pathx[key][0][0][isubkey] # the key directory is higher up than subkey, and so will already be pruned to a single member by the time the routine gets here
+                            if thisendpt !=  pathdump[pathind][0]:
+                                dellist.append(iscenario)  
+                    except:
+                        import pdb; pdb.set_trace()                   
+                    
+                    if len(dellist) > 0:
+                        if len(dellist) == len(SubCoord_pathx[isubkey]):
+                            print("none left")
+                            import pdb; pdb.set_trace()
+                        dellist.reverse()
+                        for idel in dellist:
+                            del SubCoord_pathx[isubkey][idel]
+
+            return SubCoord_pathx
+
+
 
 
         def bAllPathsDistinctx(SubCoord_pathx):
-            """
-            note that the "implicit" paths that are formed by way of mutual intersection of existing paths in pathdump are not necessarily in pathdump
-            and some may be illegal (because the paths contain nodes used in other implicit paths); those will be weeded out in the GetCorners routine
-            """
 
             # now prune the segments with low sum1 that don't get used in paths associated with higher sum1
             keys = list(SubCoord_pathx.keys())
             keys.sort()
 
-            maxkey = max(keys)
             edgepaths = []
-            for ibackcoord, ipathindex in SubCoord_path[maxkey][0]:
-                for ipathindex in itup:
-                    if not ipathindex in edgepaths: # note edgepath has no repetitions
-                        edgepaths.append(ipathindex)
+            
+
+            for ikey in keys:
+                xdict = SubCoord_pathx[ikey][0][0]
+                for ival in xdict.values():
+                    edgepaths.append(ival)
+
+            # check that all path indices are distinct
+            if len(edgepaths) != len(set(edgepaths)):
+                return False
 
             # check that all "inside" edge nodes belong only to one edge
             intervening_nodes = []
             for ipathindex in edgepaths:
-                ipath = pathdump[ipath]
+                ipath = pathdump[ipathindex]
                 if len(ipath) > 0:
-                    intervening_nodes.append(ipath[1:-1])
+                    intervening_nodes.append(ipath[1:-1]) # note this ignores 2-node paths
             if len(intervening_nodes) > 1:
                 intersected = list(set(intervening_nodes[0]).intersection(*intervening_nodes[1:]))
             
@@ -3969,7 +4136,38 @@ class cubenodeset_t():
             
             return True
 
-        def GetCorners(sub_coord_path, newcoordnode, newnodecoord, pathdump, pathdumpgeneration):
+            coordbasis = []
+            for i in range(self.NDim):
+                icoord = np.zeros((self.NDim,)).astype("int")
+                icoord[i] = 1    
+                coordbasis.append(icoord)
+
+            cornerpaths = {}
+            for inode in newnodecoord.keys():
+                #import pdb; pdb.set_trace()
+                cornerpaths[inode] = GetNeighborCorners(inode, sub_coord_path, newnodecoord, pathdump, pathdumpgeneration, coordbasis)
+                if cornerpaths[inode] is None:
+                    return None
+                else:
+                    cornerpaths[inode] = tuple(cornerpaths[inode])
+
+
+            # now check that the intervening nodes of corner paths are nowhere repeated
+
+                
+            interveningnodes = []
+            for inode in cornerpaths:
+                if len(cornerpaths[inode]) > 2:
+                    interveningnodes.extend(cornerpaths[inode][1:-1])
+            
+            if len(interveningnodes) != len(set(interveningnodes)):
+                return None
+            
+            return cornerpaths
+
+
+
+        def GetCornersx(sub_coord_pathx, newcoordnode, newnodecoord, pathdump, pathdumpgeneration):
             """
             Each corer of  cube connects to D other corner.
             Return corner nodes along with the 2nd (nearest  neighbor) node
@@ -3977,7 +4175,10 @@ class cubenodeset_t():
 
             """
 
-            def GetNeighborCorners(inode, sub_coord_path, newnodecoord, pathdump, pathdumpgeneration, coordbasis):
+
+
+
+            def GetNeighborCornersx(inode, sub_coord_pathx, newnodecoord, pathdump, pathdumpgeneration, coordbasis):
                 """
                 return the nodes of the D adjoining corners, their coords,
                 the paths connecting them to the nde
@@ -3999,23 +4200,22 @@ class cubenodeset_t():
                     thiscoord = adjcoordlist[iadj]
                     thisnumberofones = np.sum([j==1 for j in thiscoord])
                     adjnodepaths[adjcornernode] = []
-                    for key in sub_coord_path.keys():
-                        for ientry in sub_coord_path[key]:
-                            for itup in ientry[:-1]:
-                                for ipath in itup:
-                                    if pathdump[ipath][0] == inode and pathdump[ipath][-1] == adjnodelist[iadj]:
-                                        if not(pathdump[ipath][1] in adjnodepaths[adjcornernode]):
-                                            adjnodepaths[adjcornernode].append(pathdump[ipath][1])
-                                            if pathdumpgeneration[ipath] != thisnumberofones-1:
-                                                print("Wrong generation - this coord", icoord, "has", thisnumberofones, "components equal to one, which indicates how many steps it is away from origin.") 
-                                                import pdb; pdb.set_trace()
-                                    # could also be connected in the opposite orientation
-                                    elif pathdump[ipath][-1] == inode and pathdump[ipath][0] == adjnodelist[iadj]:
-                                        if not(pathdump[ipath][-2] in adjnodepaths[adjcornernode]):
-                                            adjnodepaths[adjcornernode].append(pathdump[ipath][-2])
-                                            if pathdumpgeneration[ipath] != icoordnumberofones-1:
-                                                print("Wrong generation - this coord", icoord, "has", icoordnumberofones, "components equal to one, which indicates how many steps it is away from origin.") 
-                                                import pdb; pdb.set_trace()
+                    for key in sub_coord_pathx.keys():
+                        for icoord,ipath in sub_coord_pathx[key][0][0].items():
+
+                            if pathdump[ipath][0] == inode and pathdump[ipath][-1] == adjnodelist[iadj]:
+                                if not(pathdump[ipath][1] in adjnodepaths[adjcornernode]):
+                                    adjnodepaths[adjcornernode].append(pathdump[ipath][1])
+                                    if pathdumpgeneration[ipath] != thisnumberofones-1:
+                                        print("Wrong generation - this coord", icoord, "has", thisnumberofones, "components equal to one, which indicates how many steps it is away from origin.") 
+                                        import pdb; pdb.set_trace()
+                            # could also be connected in the opposite orientation
+                            elif pathdump[ipath][-1] == inode and pathdump[ipath][0] == adjnodelist[iadj]:
+                                if not(pathdump[ipath][-2] in adjnodepaths[adjcornernode]):
+                                    adjnodepaths[adjcornernode].append(pathdump[ipath][-2])
+                                    if pathdumpgeneration[ipath] != icoordnumberofones-1:
+                                        print("Wrong generation - this coord", icoord, "has", icoordnumberofones, "components equal to one, which indicates how many steps it is away from origin.") 
+                                        import pdb; pdb.set_trace()
 
 
 
@@ -4023,11 +4223,14 @@ class cubenodeset_t():
                         print("PROBLEM -- there should be one and only one path in sub_coord_path[111...] connecting", inode, "to ", adjcornernode, "whereas the number here is", len(adjnodepaths[adjcornernode]), "this cube is ill-formed.", newcoordnode)
                         import pdb; pdb.set_trace()
                         return None
-
+                
                 myretval = []
                 for adjcornernode in adjnodelist:
                     myretval.append( adjnodepaths[adjcornernode][0])
                 return myretval
+
+
+
 
             coordbasis = []
             for i in range(self.NDim):
@@ -4037,24 +4240,25 @@ class cubenodeset_t():
 
             cornerpaths = {}
             for inode in newnodecoord.keys():
-                #import pdb; pdb.set_trace()
-                cornerpaths[inode] = GetNeighborCorners(inode, sub_coord_path, newnodecoord, pathdump, pathdumpgeneration, coordbasis)
+                cornerpaths[inode] = GetNeighborCornersx(inode, sub_coord_pathx, newnodecoord, pathdump, pathdumpgeneration, coordbasis)
                 if cornerpaths[inode] is None:
                     return None
                 else:
                     cornerpaths[inode] = tuple(cornerpaths[inode])
 
 
-            # now check that the intervening nodes of corner paths are nowhere repeated
-            if self.NNode >= 7816:
-                print("If this works, get rid of the if statement.")
-                interveningnodes = []
-                for inode in cornerpaths:
-                    if len(cornerpaths[inode]) > 2:
-                        interveningnodes.extend(cornerpaths[inode][1:-1])
-                
-                if len(interveningnodes) != len(set(interveningnodes)):
-                    return None
+
+            # now check that the intervening nodes of corner paths are nowhere repeated (later we will also check that the 
+            # intervening nodes are additionally not even neighbors of other intervening nodes)
+            #if self.NNode >= 7816:
+            #    print("If this works, get rid of this line and the preceding one, and tab the rest in the black to the left.")
+            interveningnodes = []
+            for inode in cornerpaths:
+                if len(cornerpaths[inode]) > 2:
+                    interveningnodes.extend(cornerpaths[inode][1:-1])
+            
+            if len(interveningnodes) != len(set(interveningnodes)):
+                return None
             
             return cornerpaths
 
@@ -4127,49 +4331,65 @@ class cubenodeset_t():
 
                 bItIsEmpty  = False
                 for itup in thesecoords:
-                    if len(coord_path[itup]) == 0:
+                    #import pdb; pdb.set_trace( )
+                    if len(coord_pathx[itup]) == 0:
                         coord_path[tuple(binvec)] = []
                         bItIsEmpty = True
                         break
                     
-                    
-                    for ip in coord_path[itup]:
-                        ipextra, ipextrax = self.AddSegment(ip, pathdump, pathdumpgeneration)
-                        if not(ipextra is None):
-                            tobeintersected[itup] = ipextra
+                    # old version -- deprecation watch
+                    #for ip in coord_path[itup]:
+                    #    ipextra, ipextraxold = self.AddSegment(ip, pathdump, pathdumpgeneration)
+                        #print("bbb", ipextra, ipextraxold)
+                    #    if not(ipextra is None):
+                    #        tobeintersected[itup] = ipextra
+
+
+                    # new version    
+                    for ip in coord_pathx[itup]:
+                        ipextrax = self.AddSegmentx(ip, pathdump, pathdumpgeneration)
                         if not(ipextrax is None):
                             tobeintersectedx[itup] = ipextrax
-                            
 
+                    
+
+                            
                 if bItIsEmpty:
                     continue
 
-                if np.min([ len(i)  for i in tobeintersected.values()]) == 0:
-                    return None, None
+
+
+                #if np.min([ len(i)  for i in tobeintersected.values()]) == 0:
+                #    return None, None
                 if np.min([ len(i)  for i in tobeintersectedx.values()]) == 0:
                     return None, None
 
                 
-                
-                coord_path[binvec], coord_pathx[binvec] = self.SimpleIntersection(tobeintersected)
-                if len(coord_path[binvec]) == 0:
-                    return None, None
+                #import pdb; pdb.set_trace()
+                #coord_path[binvec], coord_pathx[binvec] = self.SimpleIntersection(tobeintersected)
+                coord_pathx[binvec] = self.SimpleIntersectionx(tobeintersectedx)
+
+
+                #HEREISWHEREYOUMANDATEONLY1SCENARIOPERKEY here is where you mandate only one scenario per key
+
+                #if len(coord_path[binvec]) == 0:
+                #    return None, None
                 if len(coord_pathx[binvec]) == 0:
                     return None, None
 
-                if len(coord_path[binvec]) == 0:
-                    coord_path[binvec] = []
-                    continue
+                #if len(coord_path[binvec]) == 0:
+                #    coord_path[binvec] = []
+                #    continue
                 
-                if len(coord_path[binvec]) > 1:
+                #if len(coord_path[binvec]) > 1:
                     #print("More than one possible?", nbrsubset)
                     #import pdb; pdb.set_trace()
-                    pass
+                #    pass
 
 
-                if len(coord_pathx[binvec]) == 0:
-                    coord_pathx[binvec] = []
-                    continue
+                #if len(coord_pathx[binvec]) == 0:
+                #    coord_pathx[binvec] = []
+                #    continue
                 
                 if len(coord_pathx[binvec]) > 1:
                     #print("More than one possible?", nbrsubset)
@@ -4186,43 +4406,76 @@ class cubenodeset_t():
 
         
         contenders = []
-        NContenders = len(coord_path[self.OnesCoord])
+        NContenders = len(coord_pathx[self.OnesCoord])
         good_coordnode_nodecoord_pairs = []
         node0 = tuple([0 for i in range(self.NDim)])
 
         
 
 
-        #if Id == 1087 and pathdump_index_subset == (2,3):
-        #    print("now")
-        #    import pdb; pdb.set_trace()
 
+
+
+        
 
         for icontender in range(NContenders):
             bStllAGoodContender = True
             sub_coord_path = copy(coord_path)
             sub_coord_pathx = copy(coord_pathx)
             # each subconented will have only one possible set of coords and nodes, because we only allow one element at oppnode
-            sub_coord_path[self.OnesCoord] = [coord_path[self.OnesCoord][icontender]]
-            sub_coord_pathx[self.OnesCoord] = [coord_path[self.OnesCoord][icontender]]
+            #sub_coord_path[self.OnesCoord] = [coord_path[self.OnesCoord][icontender]]
+            sub_coord_pathx[self.OnesCoord] = [coord_pathx[self.OnesCoord][icontender]]
+
+
+            #import pdb; pdb.set_trace()
+            # NOTE: this routine gets rid of unused lower-order possible scenarios (e.g. multiple [100/010] intersections in the case of 
+            # searching for a [110] node) and then proceeds; it may turn out to be the case that the very existence of such intersections
+            # is aalready a sign that we should abort the attempt to find a well-formed cube with the axes used.
+
+            #sub_coord_path = PruneASingleContender(sub_coord_path)   
+            sub_coord_pathx = PruneASingleContenderx(sub_coord_pathx, pathdump)   
+            
+            edge_dict = GetEdgeDict(sub_coord_pathx)
+
+            if bSomeInterveningPathNodesAreNeighbors(edge_dict, pathdump):
+                continue
+                # Why do we need this? In 3 dimensions, you can have an empty cube surrounded by adjacent divided cubes on all
+                # but one side (with the remaining side abutting a region that has same lower fractality as the hole within), and the returned
+                # cube can be a "sandwich" cube that is shorter along one axis than the others. To forefend that,
+                # we check that the intervening nodes (i.e. that are not corners of the cube) are not nearest neighbors
+                # of any other such intervening node (this cannot happen in 2d because a sandwich would have some corners
+                # with less than 2D neighbors)
+
 
             #if (Id == 2055 and self.NNode == 7816):
             #    print("paths between 2039/2018 and 2018/2036 (i.e. 001/011 and 011/010 both contain 2021, as in [2039, 2025, 2021, 2018] and [2018, 2021, 2022, 2036]")
             #    import pdb; pdb.set_trace()
-            if not(bAllPathsDistinct(sub_coord_path)):
-                continue
+            #if not(bAllPathsDistinct(sub_coord_path)):
+            #    continue
             if not(bAllPathsDistinctx(sub_coord_pathx)):
+                print("Not all distinct:", coord_pathx)
+                #import pdb; pdb.set_trace()
                 continue
 
-            # pruning is necessary; otherwise a node that is from an unused path may wind up included into one of the corners of the cube
 
-            import pdb; pdb.set_trace()
-            sub_coord_path = PruneASingleContender(sub_coord_path)   
 
+            """
             nremaining = []
             for key,val in sub_coord_path.items():
                 nremaining.append(len(val))
             if np.min(nremaining) == 0:
+                print("yyy")
+                import pdb; pdb.set_trace()
+                continue
+            """
+
+            
+            
+            nremaining = []
+            for key,val in sub_coord_pathx.items():
+                nremaining.append(len(val))
+            if np.min(nremaining) == 0:
+                import pdb; pdb.set_trace()
                 continue
 
 
@@ -4230,7 +4483,7 @@ class cubenodeset_t():
             newnodecoord = {Id:node0}
 
             
-            
+            """
             for icoord in coord_path.keys():
                 if len(sub_coord_path[icoord]) > 1:
                     print("Why was this not pruned?")
@@ -4238,21 +4491,30 @@ class cubenodeset_t():
                 thisendpt = sub_coord_path[icoord][0][-1]
                 newcoordnode[icoord] = thisendpt
                 newnodecoord[thisendpt] = icoord
+            """
 
+            
+            for icoord in coord_pathx.keys():
+                if len(sub_coord_pathx[icoord]) > 1:
+                    print("Why was this not pruned?")
+                    import pdb; pdb.set_trace()
+                    x = PruneASingleContenderx(sub_coord_pathx, pathdump)  
+                thisendpt = sub_coord_pathx[icoord][0][-1]
+
+                newcoordnode[icoord] = thisendpt
+                newnodecoord[thisendpt] = icoord
             
             if len(newnodecoord) != 2**self.NDim: # this happens (rarely) when the corner nodes of the cube are nondistinct, so that one or more entries get overwritten resulting in less than 2**D entries
                     continue
             
             
 
-            # now, check that all the nodes connecting edges of the cube are distinct
+            # now, check that all the nodes connecting edges of the cube are distinct          
+            # remember, all keys have a list of 1 element at this point  
+            allpaths = []     
             
-            allpaths = []        
-            for ilist in sub_coord_path[tuple([1 for i in range(self.NDim)])]:
-                for itup in ilist[:-1]:
-                    allpaths.extend(list(itup))
-            allpaths = list(set(allpaths))
-
+            for icoord, ilist in sub_coord_pathx.items():
+                allpaths.extend(list(ilist[0][0].values()))
             bAllAreNear = True
             allnodes = []
             for ip in list(set(allpaths)):
@@ -4261,21 +4523,27 @@ class cubenodeset_t():
                     bAllAreNear = False
                 allnodes.append(thispath)
 
-            # check that all the edges have no intervening nodes that are shared.
-            for iipath, ipath in enumerate(allnodes):
-                for jjpath in range(iipath+1, len(allnodes)):
-                    jpath = allnodes[jjpath]            
-                    intersected = list(set(ipath).intersection(jpath))
-                    # note we do not have to worry about the nodes of the cube being an in-between node of any path since cube nodes
-                    # must have 2D elements and all in-between nodes have less than 2D neighbors
 
-                    for i in intersected:
-                        if i in newnodecoord.keys():
-                            intersected.remove(i)
-                    
-                    if len(intersected) != 0:
-                        #return None, None
-                        bGoodContender = False
+            if len(allpaths) != len(set(allpaths)):
+                import pdb; pdb.set_trace()
+                bStllAGoodContender = False
+
+            if bStllAGoodContender:
+                # check that all the edges have no intervening nodes that are shared.
+                for iipath, ipath in enumerate(allnodes):
+                    for jjpath in range(iipath+1, len(allnodes)):
+                        jpath = allnodes[jjpath]            
+                        intersected = list(set(ipath).intersection(jpath))
+                        # note we do not have to worry about the nodes of the cube being an in-between node of any path since cube nodes
+                        # must have 2D elements and all in-between nodes have less than 2D neighbors
+
+                        for i in intersected:
+                            if i in newnodecoord.keys():
+                                intersected.remove(i)
+                        
+                        if len(intersected) != 0:
+                            #return None, None
+                            bStllAGoodContender = False
 
             # test for interior nodes and make sure the space we wish to divide is empty
             # note, for some "crazy" nonlinear edges that have not yet been excluded, 
@@ -4291,19 +4559,23 @@ class cubenodeset_t():
             #    print("get weird", Id, nbrsubset)
             #    import pdb; pdb.set_trace()
 
-            #import pdb; pdb.set_trace()
+          
             if bStllAGoodContender and not(bAllAreNear):
                 # Either all the sourrounding cubes are divided, or else the cube itself is divided, so test if there is an interior node            
-                corners = GetCorners(sub_coord_path, newcoordnode, newnodecoord, pathdump, pathdumpgeneration)
-                if corners is None:
+                #corners = GetCorners(sub_coord_path, newcoordnode, newnodecoord, pathdump, pathdumpgeneration)
+                cornersx = GetCornersx(sub_coord_pathx, newcoordnode, newnodecoord, pathdump, pathdumpgeneration)
+                #if corners is None:
+                    #bGoodContender = False
+                #    return None, None
+                if cornersx is None:
                     #bGoodContender = False
                     return None, None
 
-                if len(list(corners.values())) != len(set(corners.values())):
+                if len(list(cornersx.values())) != len(set(cornersx.values())):
                     return None, None
 
-                if not(corners is None):
-                    for inode, tupaxissubset in corners.items():
+                if not(cornersx is None):
+                    for inode, tupaxissubset in cornersx.items():
                         if not((inode, tupaxissubset) in TestForInteriorPoints):
                             TestForInteriorPoints[(inode, tupaxissubset)] = self.bBruteFindInterior(inode, tupaxissubset, sortbyones)                    
                         bIsThereInteriorPoint = TestForInteriorPoints[(inode, tupaxissubset)]
@@ -4503,24 +4775,29 @@ class cubenodeset_t():
         print(retpoints)
         return retpoints
 
+    def l2(self, x,y):
 
+        dvec = x - y
+        for i in range(self.NDim):
+            thisdist = x[i] - y[i]
+            if thisdist >= self.TorLen - 1:
+                dvec[i] -= self.TorLen
+            if thisdist <= -self.TorLen + 1:
+                dvec[i] += self.TorLen
+
+        return np.sqrt(np.sum(dvec * dvec))
+
+    def l2node(self, i, j):
+        x = np.array(self.NodeVec[i].Coords)
+        y = np.array(self.NodeVec[j].Coords)
+        return self.l2(x, y)
 
 
     def bCubeIntegrityCheck(self, coordnode):
         """
         Simple check to make sure all the corners of cube are separated by appropriate distances
         """
-        def l2(x,y):
 
-            dvec = x - y
-            for i in range(self.NDim):
-                thisdist = x[i] - y[i]
-                if thisdist >= self.TorLen - 1:
-                    dvec[i] -= self.TorLen
-                if thisdist <= -self.TorLen + 1:
-                    dvec[i] += self.TorLen
-
-            return np.sqrt(np.sum(dvec * dvec))
         origincoord = tuple([0] * self.NDim)
         originnode = coordnode[origincoord]
         originvec = np.array(self.NodeVec[originnode].Coords)
@@ -4533,7 +4810,7 @@ class cubenodeset_t():
             thiscoord = list(origincoord)
             thiscoord[i] = 1
             thisvec = self.NodeVec[coordnode[tuple(thiscoord)]].Coords
-            thisdist = l2(np.array(thisvec), originvec)
+            thisdist = self.l2(np.array(thisvec), originvec)
 
             if basedist == 0:
                 basedist = copy(thisdist)
@@ -4548,7 +4825,7 @@ class cubenodeset_t():
             if sumones <= 1:
                 continue # already did this
             thisvec = self.NodeVec[coordnode[coord]].Coords
-            thisdist = l2(thisvec, originvec)
+            thisdist = self.l2(thisvec, originvec)
             target = np.sqrt(sumones) * basedist
             if thisdist < onemepsilon * target or thisdist > onepepsilon * target:
                 return False
@@ -4600,21 +4877,8 @@ class cubenodeset_t():
             #    bottomrun = int(rn.random()*(self.TorLen ** self.NDim))
             for inode in ishuf: #range(bottomrun, toprun):
 
-                #if inode == 2055 and self.NNode >= 7816:
-                #    print("2018 (0,1,1)  should not be a corner node -- it is weird")
-                #    import pdb; pdb.set_trace()
-
-
 
                 coordnode_nodecoord_list = self.ReturnAllWellFormedCubes(inode)
-
-
-
-
-
-                
-
-
 
                 rn.shuffle(coordnode_nodecoord_list)
                 dellist = []
@@ -4629,11 +4893,11 @@ class cubenodeset_t():
                     else:
                         #print("mixed")
                         pass
-                dellist.reverse()
 
-
-                for idel in dellist:
-                    del coordnode_nodecoord_list[i]
+                if len(dellist) > 0:
+                    dellist.reverse()
+                    for idel in dellist:
+                        del coordnode_nodecoord_list[i]
                     
                 if len(coordnode_nodecoord_list) == 0:
                     #print("No good coords at point ", inode, " for any possible set of axes there")
@@ -4726,6 +4990,8 @@ class cubenodeset_t():
 
                     if ndivide >= nlastchunk + nchunk:
                         self.UpdateHistogram()
+                        self.UpdateNeighborDistanceCount()
+
                         histmean.append( np.mean(self.Hist) )
                         histstd.append( np.std(self.Hist) )
 
@@ -5169,9 +5435,51 @@ class cubenodeset_t():
             ax.text(x[i],y[i],z[i],  '%s' % (labels[i]), size=s, zorder=1,  
             color='k') 
         plt.show()
+    
+    def Scat(self, Id, dist, wLabels=True):
+
+        x = np.array(self.NodeVec[Id].Coords)
+
+        if self.NDim == 2:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            if wLabels:
+                self.ScatterPlotLabeled(xx, yy)
+            else:
+                self.ScatterPlot(xx, yy)
+        if self.NDim == 3:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            zz = (x[2] - 0.5*dist, x[2] + 0.5*dist)
+            if wLabels:
+                self.ScatterPlotLabeled3(xx, yy, zz)
+            else:
+                self.ScatterPlot3(xx, yy, zz)
+    
+    def PlotSegment(self, A, B, ax, c='b', linewidth=3):
+        if self.NDim == 2:
+            x = [A[0], B[0]]
+            y = [A[1], B[1]]   
+            ax.plot(x,y)     
+        if self.NDim == 3:
+            x = [A[0], B[0]]
+            y = [A[1], B[1]]   
+            z = [A[2], B[2]]   
+            ax.plot(x, y, z)    
+
+    def FindNodes(x, err = 1.0e-9):
+        myretval = []
+        for i in range(len(self.NodeVec)):
+            dist = self.l2(np.array(self.NodeVec[i].Coords), x)
+            if dist <= err:
+                myretval.append(i)
+        return myretval
 
 
-
+    def ExportPickle(self, ggrid, fname):
+        import pickle
+        with open(fname, "wb") as input_file:
+            pickle.dump(ggrid)
 
 
     
@@ -5680,7 +5988,9 @@ if __name__ == '__main__':
     sshape = sshape + [NRuns]
 
     
-    BigHist = np.zeros(tuple(sshape)).astype("int")
+    if ggrid.NDim == 2:
+        BigHist = np.zeros(tuple(sshape)).astype("int")
+
     for ibig in range(NRuns):
         ggrid = cubenodeset_t(opts.dimension)
         #import pdb; pdb.set_trace()
@@ -5688,17 +5998,19 @@ if __name__ == '__main__':
         
         myretval = ggrid.ExpandManyRandomly(Prob, NRuns) 
         
-        BigHist[:,:,ibig] = ggrid.Hist
+        if ggrid.NDim == 2:
+            BigHist[:,:,ibig] = ggrid.Hist
 
-        if ibig == 0:
-            ggrid.Distributions(0)
-            ggrid.Distributions(ggrid.NNode//2)
+            if ibig == 0:
+                ggrid.Distributions(0)
+                ggrid.Distributions(ggrid.NNode//2)
     
-        print("just finished run", ibig)
+
         
-        import pickle
-        with open('blah5_slice2_expruns100_prob_0p01.pkl', 'wb') as fp:
-            pickle.dump(BigHist, fp)
+            import pickle
+            with open('blah5_slice2_expruns100_prob_0p01.pkl', 'wb') as fp:
+                pickle.dump(BigHist, fp)
+        print("just finished run", ibig)
     #np.savetxt('blah2.csv', BigHist)
 
 
@@ -5708,7 +6020,7 @@ if __name__ == '__main__':
 
 
 
-        nsliceslist = [ nslices ]
+        nsliceslist = [ ggrid.NSlices ]
 
         bGoForward = True
         bSkip = False
@@ -6053,6 +6365,5 @@ NDIV 2545 29146
 
 %run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes12.py  -t 1000  --xprob 1.0 --maxnode 5000
 
-%run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes12.py  -t 1000  --xprob 1.0 --maxnode 5000
-
+%run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes12.py  -t 10000  --xprob 1.0 --maxnode 8000 --dim 3
 """
