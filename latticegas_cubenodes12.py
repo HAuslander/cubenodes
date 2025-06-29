@@ -1090,9 +1090,27 @@ class cubenodeset_t():
 
         self.NeighborDistanceCount = {}
 
+        self.bStop = False
 
         #self.AllDirections = list(np.arange(1,self.NDim+1)) +  list(np.arange(-1,-self.NDim-1,-1))
+        sortbyones = []  
+        for j in range(2 ** self.NDim): # note that here len(nbrs) is 2*D
+            #thisnode = copy(Id) 
+            binstr = bin(j)[2:]
+            while len(binstr) < self.NDim:
+                binstr = '0' + binstr
+            lenbinstr = len(binstr)
+            binvec = [int(chr) for chr in binstr]
+            sortbyones.append((np.sum(binvec), tuple(binvec)))           
+        sortbyones.sort()
+        self.SortByOnes = sortbyones
 
+    def MaxDist(self, inode):
+        d = 0
+        for inbr in self.NodeVec[inode].Neighbors:
+            nbrd = self.l2node(inode, inbr)
+            d = np.max([d, nbrd])
+        return d
 
     def UpdateNeighborDistanceCount(self):
         #if self.NNode > 1000:
@@ -1115,6 +1133,8 @@ class cubenodeset_t():
         print("Hist update for nnode count", self.NNode)
         for key, val in sorted(self.NeighborDistanceCount.items()):
             print("d", key, val)
+            if key == 1.0 and val  == 30 and self.NNode > 25000:
+                self.bStop = True
 
     def SumAmp(self,bPrint=True):
         myret = np.sum([inode.Amplitude for inode in self.NodeVec])
@@ -1524,7 +1544,7 @@ class cubenodeset_t():
             return len(intersected) == 0
 
 
-    def BruteDivideCube(self, CoordNode, NodeCoord):
+    def BruteDivideCube(self, CoordNode, NodeCoord, coord_path):
 
 
         """
@@ -1609,6 +1629,17 @@ class cubenodeset_t():
                 if i != 0 and i != cubelen:
                     myretval.append(i)
             return tuple(myretval)
+        
+        def CoordRun(scaledsubcoord,scaledcoord, cubelen):
+            retcoords = []
+            for i in range(len(scaledsubcoord)):
+                if scaledsubcoord[i] == 0 and scaledcoord[i] == cubelen:
+                    for j in range(cubelen+1):
+                        thiscoord = list(scaledsubcoord)
+                        thiscoord[i] = j
+                        thiscoord = tuple(thiscoord)
+                        retcoords.append(thiscoord)
+            return retcoords
 
         def ToBeIntersected(icoord,  cubelen):
             """
@@ -1669,11 +1700,8 @@ class cubenodeset_t():
             axisedges.append(CoordNode[tuple(thisaxis)])
 
         alreadydone = []
-        # Next we will see if any of the required have already been created due to divisions
-        # in adjacent D-cubes
 
-        # first explicitly search for the nodes situated on a (previous) edge connecting two nodes of the cube
-        
+
         allcoords_ranked = []        
         for j in range(nodelen**self.NDim):
             thisvec = self.BaseN(j, nodelen, self.NDim)
@@ -1698,123 +1726,34 @@ class cubenodeset_t():
         allcoords_ranked = newcoords
         # now, allcoords is ranked not only by sum or nonintervening, but also by the lowest intervening component
 
+        # Next we will see if any of the required have already been created due to divisions
+        # in adjacent D-cubes
+
+        # first explicitly search for the nodes situated on a (previous) edge connecting two nodes of the cube;
+        # note any path in coord_path that has more than 2 nodes, those extra interior nodes must correspond to pre-existing edge nodes
+
+        for icoord, dictpaths in coord_path.items():
+            scaledcoord = tuple([cubelen*i for i in icoord])
+            for subcoord, edgepath in dictpaths.items():
+                scaledsubcoord = tuple([cubelen*i for i in subcoord])
+                coordpath = CoordRun(scaledsubcoord, scaledcoord, cubelen)
+                if len(edgepath) == 2:
+                    continue            
+                for jcoord, jnode in zip(coordpath[1:-1], edgepath[1:-1]):
+                    newcoordnode[jcoord] = jnode
+                    newnodecoord[jnode] = jcoord 
+                alreadydone.extend(coordpath) 
+        #  now that you've found the pre-existing edges (i.e. 1-dim structures) from adjacent and previously divided cubes do all the higher dimensinal pre-existing structures
 
 
-        # now, try to see if there exist some nodes from adjacent and previously divided cubes (that we should therefore avoid trying to recreate)
-
-        already_crossed_off = []
+        
         previsum = 0
         for isum,icoord in allcoords_ranked:
             if icoord in alreadydone:
                 continue
-            if isum == 0:
-                print("Why is this not already in alreadydone? Get rid of this check if it never fails.")
-                import pdb; pdb.set_trace()
-                continue # if isum is zero, thie coord is one of the nodes
-            elif isum == 1:
-                # note that allcoords_ranked will in the case of isum==1, due to the extra ranking by minimum nonintervening component, always
-                # rank them in the way most needed
-                if icoord in already_crossed_off:
-                    continue
-
-
-                if Id == 1859 and self.NNode >= 13150:
-                    print("interior test has to fail")
-                    import pdb; pdb.set_trace()
-
-
-                idim = firstintervening(icoord, cubelen)
-                adjcoord = list(icoord)
-                adjcoord[idim] -= 1
-                if not(tuple(adjcoord) in alreadydone):
-                    continue
-                
-                #import pdb; pdb.set_trace()
-                adjnode = newcoordnode[tuple(adjcoord)]
-                farcoord = list(icoord)
-                farcoord[idim] = cubelen
-                farnode = newcoordnode[tuple(farcoord)]
-
-                #if tuple(NodeCoord.keys()) == (15709, 15705, 15710, 15706) and self.NNode > 18340:
-                #    import pdb; pdb.set_trace()
-
-
-                adjnbrs = self.NodeVec[newcoordnode[tuple(adjcoord)]].Neighbors
-                if farnode in adjnbrs:
-                    # there are no pre-existing nodes along this edge;
-                    # add all other nodes along this edge and move on
-                    for idone in range(1,nodelen-1):
-                        #import pdb; pdb.set_trace()
-                        xtracoord = list(icoord)
-                        xtracoord[idim] = idone
-                        xtracoord = tuple(xtracoord)
-                        if not(xtracoord in already_crossed_off):
-                            already_crossed_off.append(xtracoord)
-                    continue      
-
-
-
-
-
-                for inbr in adjnbrs:      
-                    #if self.NNode  >= 1036:
-                    #    import pdb; pdb.set_trace()    
-
-    
-                    if inbr in newnodecoord.keys():
-                        continue
-
-                    iPath = [adjnode, inbr]
-                    #import pdb ;pdb.set_trace()
-                    pathdump = self.BruteNeighborSearch(iPath, self.NSlices+2)
-                    goodpaths = []
-                    for ipath in pathdump:
-                        # must check that endpoint is a corder 
-                        # and that the beginning/endpt aren't nearest neighbors 
-                        # (which would mean the path is some near-loop and and is not linear)
-                        if ipath[-1] in NodeCoord and not(ipath[-1] in self.NodeVec[ipath[0]].Neighbors and len(ipath) > 2):
-                            goodpaths.append(ipath)
-                    if len(goodpaths) > 1:
-                        print("ERROR: why are there multiple far neighbors that are suitable; will arbitarily pick one")
-                        import pdb; pdb.set_trace()
-                    elif len(goodpaths) == 0:
-                        farnbrs = iPath
-                    else:
-                        farnbrs = goodpaths[0]
-                    #farnbrs, bIsOK = self.FarNeighbor(adjnode, inbr, list(NodeCoord.keys()))
-                    #if not(bIsOK):
-                    #    print("Why are we running FarNeighbor on questionable scenarios like connecting these nodes ", adjnode, inbr )
-                    #    import pdb; pdb.set_trace()
-                    
-                    if farnbrs[-1] != farnode:
-                        continue # we'll do the above farnbrs, but not now
-
-                    # note that this returns ALL the intervening nodes between the node at icoord and farnod
-                    lenfarnbrs = len(farnbrs)
-                    if lenfarnbrs < 2:
-                        print("What's going on here?")
-                        import pdb; pdb.set_trace()
-                    #if not(farnbrs[-1] in NodeCoord.keys()):
-                    #    continue
-
-                    if lenfarnbrs > 2:
-                        kcoord = list(icoord)
-                        for k in range(1, lenfarnbrs-1):
-                            kcoord[idim] = k
-
-                            newcoordnode[tuple(kcoord)] = farnbrs[k]
-                            newnodecoord[farnbrs[k]] = tuple(kcoord)
-                            alreadydone.append(tuple(kcoord))
-                            previsum = copy(isum) 
-                        break 
-
-
-
+            if isum <= 1:
+                continue # already did these      
             else:   
-                if Id == 1859 and self.NNode >= 13150:
-                    print("interior test has to fail")
-                    import pdb; pdb.set_trace()
-
                 if previsum != isum:
                     vecintervening = [NIntervening(x, nodelen) for x in alreadydone]
                     if not(isum-1 in vecintervening):
@@ -1933,12 +1872,10 @@ class cubenodeset_t():
             newcoordnode[thistuple] = thisnode.Id
             newnodecoord[thisnode.Id] = thistuple
             if bHistory:
-
                 if thisnode.Coords is None:
                     crds, ratcrds = GetCoords(thistuple, Id, nslices, axisedges, CoordNode, NodeCoord)
                     thisnode.Coords = crds
                     #thisnode.RatCoords = ratcrds
-
                     for ind in self.NodeVec:
                         if ind.Id == thisnode.Id:
                             continue
@@ -1950,7 +1887,6 @@ class cubenodeset_t():
        
         # now delete whichever old neighbors are part of the original (unsliced) cube        
         for key, val in NodeCoord.items():
-
             thisnode = key
             thisvec = list(val)
             thesenbrs = copy(self.NodeVec[thisnode].Neighbors)
@@ -1961,13 +1897,9 @@ class cubenodeset_t():
 
             self.NodeVec[thisnode].Neighbors.sort()
 
-
         # Note the number of neighbors depends on the number of components in the vector that are 0 or nslices;
         # if that number zero, we're in the interior of the crube and the number of neighbors is 2*D, if it's 1 then
         # we're (in 3d) in the middle of  face then there are only 2*D-1, if it's 2 then it's 2*D-2, etc.
-
-
-
 
         for j in range(nodelen**self.NDim):
             thisvec = self.BaseN(j, nodelen, self.NDim)
@@ -2312,7 +2244,8 @@ class cubenodeset_t():
                 return False
         return True
 
-    
+
+        
     
 
 
@@ -2354,22 +2287,23 @@ class cubenodeset_t():
         coordorigin = tuple([0] * self.NDim)
         nodecoord[Id] = tuple([0] * self.NDim)
         coordnode[coordorigin] = coordorigin
-        sortbyones = []  
-        for j in range(2 ** self.NDim): # note that here len(nbrs) is 2*D
-            thisnode = copy(Id) 
-            binstr = bin(j)[2:]
-            while len(binstr) < self.NDim:
-                binstr = '0' + binstr
-            lenbinstr = len(binstr)
-            binvec = [int(chr) for chr in binstr]
-            sortbyones.append((np.sum(binvec), tuple(binvec)))           
-        sortbyones.sort()
-        for ind1, itup in sortbyones:
-            if ind1 > self.NDim:
-                sortbyones.remove((ind1, itup))
-
-
+        #sortbyones = []  
+        #for j in range(2 ** self.NDim): # note that here len(nbrs) is 2*D
+        #    thisnode = copy(Id) 
+        #    binstr = bin(j)[2:]
+        #    while len(binstr) < self.NDim:
+        #        binstr = '0' + binstr
+        #    lenbinstr = len(binstr)
+        #    binvec = [int(chr) for chr in binstr]
+        #    sortbyones.append((np.sum(binvec), tuple(binvec)))           
+        #sortbyones.sort()
+        #for ind1, itup in sortbyones:
+        #    if ind1 > self.NDim:
+        #        print("Remove this stupid for block")
+        #        import pdb; pdb.set_trace()
+        #        sortbyones.remove((ind1, itup))
         
+        sortbyones = self.SortByOnes
 
         pathdump = []
         pathdumpgeneration = []
@@ -2422,6 +2356,10 @@ class cubenodeset_t():
                 jendpts.sort()
                 jendpts = tuple(jendpts)
                 if iendpts == jendpts and pathdumpgeneration[iipath] == pathdumpgeneration[jjpath]:
+                    if len(jpath) == 4 and len(ipath) == 4:
+                        if (self.l2node(jpath[0], jpath[1]) * 3 ==  self.l2node(jpath[0], jpath[-1])) or (self.l2node(ipath[0], ipath[1]) * 3 ==  self.l2node(ipath[0], ipath[-1])):
+                            print("one is straight?")
+                            import pdb; pdb.set_trace()
                     if len(jpath) > 2:
                         dellist.append(jjpath)
                     if len(ipath) > 2:
@@ -3543,6 +3481,17 @@ class cubenodeset_t():
                     newtup = tuple(newlist)
                     edge_dict[newtup] = ipathind
             return edge_dict
+
+        def ChangePathIndicesToNodeLists(sub_coord_pathx, pathdump):
+            retdict = copy(sub_coord_pathx)
+            for key, list_tupdict_endnode in sub_coord_pathx.items():
+                thisdict = list_tupdict_endnode[0][0]
+                newthisdict = copy(thisdict)
+                for subkey, pathindex in thisdict.items():
+                    thispath = pathdump[pathindex]
+                    newthisdict[subkey] = thispath
+                retdict[key] = newthisdict
+            return retdict
         
         def bSomeInterveningPathNodesAreNeighbors(edge_dict, pathdump):
             allintervening = []
@@ -3574,6 +3523,65 @@ class cubenodeset_t():
                     if len(intersected) > 0:
                         return True
             return False
+
+        def bNeighborExclusivity(edge_dict, pathdump):
+            """
+            No node along any edge can have a neighbor that is a node along some other edge
+            """
+            def AllButThisEdge(edge_dict, excludedkey, pathdump):
+                myretval = []
+                for key, pathind in edge_dict.items():
+                    if key == excludedkey:
+                        continue
+                    myretval.extend(pathdump[pathind])
+                return myretval
+
+
+            for key, pathind in edge_dict.items():
+                thispath = pathdump[pathind]
+                if len(thispath) == 2:
+                    continue
+                
+                othernodes = AllButThisEdge(edge_dict, key, pathdump)
+                for inode in thispath[1:-1]:
+                    nbrs = self.NodeVec[inode].Neighbors
+                    for inbrnode in nbrs:
+                        if inbrnode in othernodes and not(inbrnode in thispath):
+                            #import pdb; pdb.set_trace()
+                            return False
+            return True
+
+
+            allintervening = []
+            sortkeys = list(edge_dict.keys())
+            sortkeys.sort()
+        
+            for i in range(len(sortkeys)):
+                itup = sortkeys[i]
+                ipathind = edge_dict[itup]
+                ipath = pathdump[ipathind]
+
+                if len(ipath) == 2:
+                    continue
+                iinterven = ipath[1:-1]
+                iinterven_nbrs = []
+                for inode in iinterven:
+                    iinterven_nbrs.extend(self.NodeVec[inode].Neighbors)
+
+                for j in range(len(sortkeys)):
+                    if j == i:
+                        continue
+                    jtup = sortkeys[j]
+                    jpathind = edge_dict[jtup]
+                    jpath = pathdump[jpathind]
+                    if len(jpath) == 2:
+                        continue
+                    jjinterven = jpath[1:-1]
+                    intersected = list(set(iinterven_nbrs).intersection(jjinterven))
+                    if len(intersected) > 0:
+                        return True
+            return False
+
 
         def AllInRemaining(listofpathtuples, remainingpaths):
             for itup in listofpathtuples:
@@ -3627,7 +3635,14 @@ class cubenodeset_t():
 
             return SubCoord_pathx
 
-
+        def bGenerationCheck(sub_coord_pathx, pathdumpgeneration):
+            for key, listtuples in sub_coord_pathx.items():
+                subdict = listtuples[0][0]
+                sum1 = np.sum(key) - 1
+                for pathind in subdict.values():
+                    if pathdumpgeneration[pathind] != sum1:
+                        return False
+            return True
 
 
         def bAllPathsDistinctx(SubCoord_pathx):
@@ -3915,6 +3930,11 @@ class cubenodeset_t():
             sub_coord_pathx[self.OnesCoord] = [coord_pathx[self.OnesCoord][icontender]]
 
 
+
+            if not(bGenerationCheck(sub_coord_pathx, pathdumpgeneration)):
+                print("Failed generations? If this never hapens, get rid of the check")
+                import pdb; pdb.set_trace()
+                bGenerationCheck(sub_coord_pathx)
             #import pdb; pdb.set_trace()
             # NOTE: this routine gets rid of unused lower-order possible scenarios (e.g. multiple [100/010] intersections in the case of 
             # searching for a [110] node) and then proceeds; it may turn out to be the case that the very existence of such intersections
@@ -3925,22 +3945,40 @@ class cubenodeset_t():
             
             edge_dict = GetEdgeDict(sub_coord_pathx)
 
-            if bSomeInterveningPathNodesAreNeighbors(edge_dict, pathdump):
+            # if same path serves as more than one edge, abort
+            if len(edge_dict.values()) != len(set(edge_dict.values())):
                 continue
-                # Why do we need this? In 3 dimensions, you can have an empty cube surrounded by adjacent divided cubes on all
+
+
+            
+
+
+            bFailedSomeInterveningPathNodesAreNeighbors = bSomeInterveningPathNodesAreNeighbors(edge_dict, pathdump)
+
+                # Why do we need this check at all? In 3 dimensions, you can have an empty cube surrounded by adjacent divided cubes on all
                 # but one side (with the remaining side abutting a region that has same lower fractality as the hole within), and the returned
                 # cube can be a "sandwich" cube that is shorter along one axis than the others. To forefend that,
                 # we check that the intervening nodes (i.e. that are not corners of the cube) are not nearest neighbors
                 # of any other such intervening node (this cannot happen in 2d because a sandwich would have some corners
                 # with less than 2D neighbors)
+            
+            #import pdb; pdb.set_trace()
+            bFailedNeighborExclusivity = not(bNeighborExclusivity(edge_dict, pathdump))
+            if bFailedSomeInterveningPathNodesAreNeighbors and not(bFailedNeighborExclusivity):
+                print("Investigate further bNeighborExclusivity should be more restrictive than SomeInterveningPathNodesAreNeighbors")
+                import pdb; pdb.set_trace()
+                bSomeInterveningPathNodesAreNeighbors(edge_dict, pathdump)
+                bNeighborExclusivity(edge_dict, pathdump)
 
+            if bFailedSomeInterveningPathNodesAreNeighbors or bFailedNeighborExclusivity:
+                continue
 
             #if (Id == 2055 and self.NNode == 7816):
             #    print("paths between 2039/2018 and 2018/2036 (i.e. 001/011 and 011/010 both contain 2021, as in [2039, 2025, 2021, 2018] and [2018, 2021, 2022, 2036]")
             #    import pdb; pdb.set_trace()
             if not(bAllPathsDistinctx(sub_coord_pathx)):
                 print("Not all distinct:", coord_pathx)
-                #import pdb; pdb.set_trace()
+                import pdb; pdb.set_trace()
                 continue
 
             nremaining = []
@@ -4018,15 +4056,15 @@ class cubenodeset_t():
 
           
             if bStllAGoodContender and not(bAllAreNear):
-                # Either all the sourrounding cubes are divided, or else the cube itself is divided, so test if there is an interior node            
+                   
                 cornersx = GetCornersx(sub_coord_pathx, newcoordnode, newnodecoord, pathdump, pathdumpgeneration)
                 if cornersx is None:
                     #bGoodContender = False
                     return None, None, None
-
+                # if same node serves as more than one corner, abort
                 if len(list(cornersx.values())) != len(set(cornersx.values())):
                     return None, None, None
-
+                # Either all the sourrounding cubes are divided, or else the cube itself is divided, so test if there is an interior node         
                 if not(cornersx is None):
                     for inode, tupaxissubset in cornersx.items():
                         if not((inode, tupaxissubset) in TestForInteriorPoints):
@@ -4038,15 +4076,16 @@ class cubenodeset_t():
                             
 
             if bStllAGoodContender:
-                good_coordnode_nodecoord_pairs.append((newcoordnode, newnodecoord))
+                exportable_sub_coord_pathx = ChangePathIndicesToNodeLists(sub_coord_pathx, pathdump)
+                good_coordnode_nodecoord_pairs.append((newcoordnode, newnodecoord, exportable_sub_coord_pathx))
         
         if len(good_coordnode_nodecoord_pairs) > 1:
             print("multiple possibilities for coordnode and nodecoord? Will return None, None but find out why this is happening. ")
             import pdb; pdb.set_trace()
             return None, None, None
         elif len(good_coordnode_nodecoord_pairs) == 1:
-            (newcoordnode, newnodecoord) = good_coordnode_nodecoord_pairs[0]
-            return newcoordnode, newnodecoord, sub_coord_pathx
+            (newcoordnode, newnodecoord, exportable_sub_coord_pathx) = good_coordnode_nodecoord_pairs[0]
+            return newcoordnode, newnodecoord, exportable_sub_coord_pathx
         else:
             #print("no good cubes available at", Id, self.NodeVec[Id].Coords, nbrsubset)
             #import pdb; pdb.set_trace()
@@ -4122,7 +4161,7 @@ class cubenodeset_t():
 
 
 
-
+    
 
     def FindNearest(self, xarr):
         #import pdb; pdb.set_trace()
@@ -4328,7 +4367,21 @@ class cubenodeset_t():
             for inode in ishuf: #range(bottomrun, toprun):
 
 
+
+                
+                if self.MaxDist(inode) == 1.0 and self.bStop:
+                    print("why not updating")
+                    import pdb; pdb.set_trace()
                 coordnode_nodecoord_coordpath_list = self.ReturnAllWellFormedCubes(inode)
+
+                if False and len(coordnode_nodecoord_coordpath_list) == 0:
+                    print("why zero")
+
+                    import pdb; pdb.set_trace()
+                    self.ReturnAllWellFormedCubes(inode)
+                    bnbrs = self.NodeVec[inode].Neighbors
+                    for ib in bnbrs:
+                        self.ReturnAllWellFormedCubes(ib)
 
                 rn.shuffle(coordnode_nodecoord_coordpath_list)
                 dellist = []
@@ -4404,6 +4457,8 @@ class cubenodeset_t():
                     import pdb; pdb.set_trace()
                     self.bCubeIntegrityCheck(coords)
 
+
+                
                 self.BruteDivideCube(coords, noodes, coordpath)
 
                 ndivisions += 1
@@ -4809,7 +4864,7 @@ class cubenodeset_t():
         ax.set_xlabel('X Axis')
         ax.set_ylabel('Y Axis')
         ax.set_zlabel('Z Axis')
-        ax.set_title('Cubes x:%s, y:%s z:%s' % (str(minxmax), str(yminymax), str(zminzmax)))
+        ax.set_title('Cubes x:%s, y:%s z:%s' % (str(xminxmax), str(yminymax), str(zminzmax)))
 
 
         plt.show()
@@ -4869,10 +4924,6 @@ class cubenodeset_t():
 
 
         # Create a figure and 3D axis
-        fig = plt.figure()
-        ax = fig.add_subplot(projection='3d')
-
-
         s = 10
         fig = plt.figure()
         ax = fig.add_subplot(projection='3d')
@@ -4882,9 +4933,281 @@ class cubenodeset_t():
             ax.text(x[i],y[i],z[i],  '%s' % (labels[i]), size=s, zorder=1,  
             color='k') 
         plt.show()
-    
+
+
+
+    def ScatterPlotLabeledColored3(self, xminxmax, yminymax, zminzmax, bEcho=None):
+        # even though this is designed for 2-d graphs, I will make the data-acquisition loop general
+        # https://stackoverflow.com/questions/10374930/annotating-a-3d-scatter-plot
+        
+        dataarr4 = []
+        labels4 = []
+        dataarr5 = []
+        labels5 = []
+        dataarr6 = []
+        labels6 = []
+        iinput = 0
+        for ii,inode in enumerate(self.NodeVec):
+            thisx, thisy, thisz = inode.Coords
+            
+            if xminxmax[0] <= 0 and thisx > self.TorLen//2:
+                thisx -= self.TorLen
+            if yminymax[0] <= 0 and thisy > self.TorLen//2:
+                thisy -= self.TorLen
+            if zminzmax[0] <= 0 and thisz > self.TorLen//2:
+                thisz -= self.TorLen
+                
+            if xminxmax[1] >= self.TorLen//2 and thisx < np.min([xminxmax[0], self.TorLen//2]) :
+                thisx += self.TorLen
+            if yminymax[1]  >= self.TorLen//2 and thisy < np.min([yminymax[0], self.TorLen//2]) :
+                thisy += self.TorLen
+            if zminzmax[1]  >= self.TorLen//2 and thisy < np.min([zminzmax[0], self.TorLen//2]) :
+                thisz += self.TorLen
+                
+
+            thislabel = str(inode.Id)
+
+            if thisx < xminxmax[0] or thisx > xminxmax[1]:
+                continue
+            if thisy < yminymax[0] or thisy > yminymax[1]:
+                continue           
+            if thisz < zminzmax[0] or thisz > zminzmax[1]:
+                continue           
+            if not(bEcho is None):
+                print(inode.Id, inode.Coords, inode.Neighbors)     
+            
+            nbrlen = len(inode.Neighbors)
+            if nbrlen == 6:
+                dataarr6.append( (thisx, thisy, thisz) )
+                labels6.append( thislabel )
+            elif nbrlen == 5:
+                dataarr5.append( (thisx, thisy, thisz) )
+                labels5.append( thislabel )
+            elif nbrlen == 4:
+                dataarr4.append( (thisx, thisy, thisz) )
+                labels4.append( thislabel )
+            iinput += 1
+
+
+        x6 = [icomp[0] for icomp in dataarr6]
+        y6 = [icomp[1] for icomp in dataarr6]
+        z6 = [icomp[2] for icomp in dataarr6]
+
+
+        x5 = [icomp[0] for icomp in dataarr5]
+        y5 = [icomp[1] for icomp in dataarr5]
+        z5 = [icomp[2] for icomp in dataarr5]
+
+
+        x4 = [icomp[0] for icomp in dataarr4]
+        y4 = [icomp[1] for icomp in dataarr4]
+        z4 = [icomp[2] for icomp in dataarr4]
+
+
+
+        from mpl_toolkits.mplot3d import Axes3D
+
+
+        # Create a figure and 3D axis
+        s = 8
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+
+        for i in range(len(x6)): #plot each point + it's index as text above
+            ax.scatter(x6[i],y6[i],z6[i],color='b') 
+            ax.text(x6[i],y6[i],z6[i],  '%s' % (labels6[i]), size=s, zorder=1,  
+            color='k') 
+        for i in range(len(x5)): #plot each point + it's index as text above
+            ax.scatter(x5[i],y5[i],z5[i],color='r') 
+            ax.text(x5[i],y5[i],z5[i],  '%s' % (labels5[i]), size=s, zorder=1,  
+            color='k') 
+        for i in range(len(x4)): #plot each point + it's index as text above
+            ax.scatter(x4[i],y4[i],z4[i],color='g') 
+            ax.text(x4[i],y4[i],z4[i],  '%s' % (labels4[i]), size=s, zorder=1,  
+            color='k') 
+
+
+        plt.show()
+
+
+    def ScatterPlotColored3(self, xminxmax, yminymax, zminzmax, bEcho=None):
+        # even though this is designed for 2-d graphs, I will make the data-acquisition loop general
+        # https://stackoverflow.com/questions/10374930/annotating-a-3d-scatter-plot
+        
+        dataarr4 = []
+        labels4 = []
+        dataarr5 = []
+        dataarr6 = []
+        iinput = 0
+        for ii,inode in enumerate(self.NodeVec):
+            thisx, thisy, thisz = inode.Coords
+            
+            if xminxmax[0] <= 0 and thisx > self.TorLen//2:
+                thisx -= self.TorLen
+            if yminymax[0] <= 0 and thisy > self.TorLen//2:
+                thisy -= self.TorLen
+            if zminzmax[0] <= 0 and thisz > self.TorLen//2:
+                thisz -= self.TorLen
+                
+            if xminxmax[1] >= self.TorLen//2 and thisx < np.min([xminxmax[0], self.TorLen//2]) :
+                thisx += self.TorLen
+            if yminymax[1]  >= self.TorLen//2 and thisy < np.min([yminymax[0], self.TorLen//2]) :
+                thisy += self.TorLen
+            if zminzmax[1]  >= self.TorLen//2 and thisy < np.min([zminzmax[0], self.TorLen//2]) :
+                thisz += self.TorLen
+                
+
+            thislabel = str(inode.Id)
+
+            if thisx < xminxmax[0] or thisx > xminxmax[1]:
+                continue
+            if thisy < yminymax[0] or thisy > yminymax[1]:
+                continue           
+            if thisz < zminzmax[0] or thisz > zminzmax[1]:
+                continue           
+            if not(bEcho is None):
+                print(inode.Id, inode.Coords, inode.Neighbors)     
+            
+            nbrlen = len(inode.Neighbors)
+            if nbrlen == 6:
+                dataarr6.append( (thisx, thisy, thisz) )
+
+            elif nbrlen == 5:
+                dataarr5.append( (thisx, thisy, thisz) )
+
+            elif nbrlen == 4:
+                dataarr4.append( (thisx, thisy, thisz) )
+
+            iinput += 1
+
+
+        x6 = [icomp[0] for icomp in dataarr6]
+        y6 = [icomp[1] for icomp in dataarr6]
+        z6 = [icomp[2] for icomp in dataarr6]
+
+
+        x5 = [icomp[0] for icomp in dataarr5]
+        y5 = [icomp[1] for icomp in dataarr5]
+        z5 = [icomp[2] for icomp in dataarr5]
+
+
+        x4 = [icomp[0] for icomp in dataarr4]
+        y4 = [icomp[1] for icomp in dataarr4]
+        z4 = [icomp[2] for icomp in dataarr4]
+
+
+
+        from mpl_toolkits.mplot3d import Axes3D
+
+
+        # Create a figure and 3D axis
+        s = 8
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+
+        for i in range(len(x6)): #plot each point + it's index as text above
+            ax.scatter(x6[i],y6[i],z6[i],color='b') 
+            
+        for i in range(len(x5)): #plot each point + it's index as text above
+            ax.scatter(x5[i],y5[i],z5[i],color='r') 
+            
+        for i in range(len(x4)): #plot each point + it's index as text above
+            ax.scatter(x4[i],y4[i],z4[i],color='g') 
+            
+
+
+        plt.show()
+       
     def Scat(self, Id, dist, wLabels=True):
 
+        x = np.array(self.NodeVec[Id].Coords)
+
+        if self.NDim == 2:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            if wLabels:
+                self.ScatterPlotLabeled(xx, yy)
+            else:
+                self.ScatterPlot(xx, yy)
+        if self.NDim == 3:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            zz = (x[2] - 0.5*dist, x[2] + 0.5*dist)
+            if wLabels:
+                self.ScatterPlotLabeled3(xx, yy, zz)
+            else:
+                self.ScatterPlot3(xx, yy, zz)
+
+        
+    def ScatColored(self, Id, dist, wLabels=True):
+
+        x = np.array(self.NodeVec[Id].Coords)
+
+        if self.NDim == 2:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            if wLabels:
+                self.ScatterPlotLabeled(xx, yy)
+            else:
+                self.ScatterPlot(xx, yy)
+        if self.NDim == 3:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            zz = (x[2] - 0.5*dist, x[2] + 0.5*dist)
+            if wLabels:
+                self.ScatterPlotLabeledColored3(xx, yy, zz)
+            else:
+                self.ScatterPlotColored3(xx, yy, zz)
+
+    
+    
+
+    def PlotCoordPath(self, coordpath, dist = 0.1,  wLabels=True):
+        def GetAllNodes(coordpath, wLabels):
+            myretval = []
+            for upkey, subdict in coordpath.items():
+                for subkey, listnode in subdict.items():
+                    myretval.extend(listnode)
+            if wLabels:
+                return myretval, [str(i) for i in myretval]
+            else:
+                return myretval
+        if wLabels:
+            listnodes, labels = GetAllNodes(coordpath, True)
+        else:
+            listnodes = GetAllNodes(coordpath, False)
+       
+        if self.NDim == 3:
+            """
+            xmin = np.min([self.NodeVec[i].Coords[0] for i in listnodes])
+            xmax = np.max([self.NodeVec[i].Coords[0] for i in listnodes])
+            ymin = np.min([self.NodeVec[i].Coords[1] for i in listnodes])
+            ymax = np.max([self.NodeVec[i].Coords[1] for i in listnodes])
+            zmin = np.min([self.NodeVec[i].Coords[2] for i in listnodes])
+            zmax = np.max([self.NodeVec[i].Coords[2] for i in listnodes])
+            """
+            x = []
+            y = []
+            z = []
+            print(listnodes)
+            for inode in listnodes:
+                crd = self.NodeVec[inode].Coords
+                x.append(crd[0])
+                y.append(crd[1])
+                z.append(crd[2])
+
+            import pdb; pdb.set_trace()
+            from mpl_toolkits.mplot3d import Axes3D
+            s = 10
+            fig = plt.figure()
+            ax = fig.add_subplot(projection='3d')
+
+            for i in range(len(x)): #plot each point + it's index as text above
+                ax.scatter(x[i],y[i],z[i],color='b') 
+                if wLabels:
+                    ax.text(x[i],y[i],z[i],  '%s' % (labels[i]), size=s, zorder=1, color='k') 
+
+        return 
         x = np.array(self.NodeVec[Id].Coords)
 
         if self.NDim == 2:
@@ -4912,7 +5235,16 @@ class cubenodeset_t():
             x = [A[0], B[0]]
             y = [A[1], B[1]]   
             z = [A[2], B[2]]   
+
+            from mpl_toolkits.mplot3d import Axes3D
+
+
+            # Create a figure and 3D axis
+            s = 10
+            fig = plt.figure()
+            ax = fig.add_subplot(projection='3d')
             ax.plot(x, y, z)    
+            
 
     def FindNodes(x, err = 1.0e-9):
         myretval = []
@@ -4925,8 +5257,8 @@ class cubenodeset_t():
 
     def ExportPickle(self, ggrid, fname):
         import pickle
-        with open(fname, "wb") as input_file:
-            pickle.dump(ggrid)
+        fp = open(fname, "wb")
+        pickle.dump(ggrid, fp)
 
 
     
@@ -5079,128 +5411,31 @@ def getweightedfractality(ggrid):
     return wtdsum/wtdamp, wtdsum2/wtdamp
 
 if __name__ == '__main__':   
-    
-    opts, args = ReadParams()
+    import pickle
+    bDoRest = True
 
-    if opts.dimension == 3:
-        from mpl_toolkits.mplot3d import Axes3D
-    rn.seed(opts.seed)
+    if not(bDoRest):
+        f = open('blah.pkl', 'rb')
+        ggrid = pickle.load(f)
+        f.close()
 
-    #import pdb; pdb.set_trace()
-    FreshProb = opts.xprob
-    MaxNodes = opts.maxnodes
+        f = open('blah3.pkl', 'rb')
+        coords, nodes, coordpath = pickle.load(f)
+        f.close()
+        import pdb; pdb.set_trace()
+        ggrid.PlotCoordPath(coordpath)
+    else:
+        opts, args = ReadParams()
 
-    TargetLength = opts.length
+        if opts.dimension == 3:
+            from mpl_toolkits.mplot3d import Axes3D
+        rn.seed(opts.seed)
 
-    GuideDict = {}
-    NodeCoord = {}
-    CoordNode = {}
+        #import pdb; pdb.set_trace()
+        FreshProb = opts.xprob
+        MaxNodes = opts.maxnodes
 
-    Prob = opts.prob
-    NRuns = opts.expansionruns
-    ggrid = cubenodeset_t(opts.dimension)
-    
-    ggrid.CreateNCube()
-
-    """
-    maxnbr = -1
-    minnbr = 2 * ggrid.NDim + 1
-    for inv in ggrid.NodeVec:
-        if len(inv.Neighbors) < minnbr:
-            minnbr = len(inv.Neighbors)
-        if len(inv.Neighbors) > maxnbr:
-            maxnbr = len(inv.Neighbors)
-
-    import pdb; pdb.set_trace()
-    """
-
-    
-    list_of_coordnode_nodecoord_tuples_0 = ggrid.ReturnAllWellFormedCubes(0)
-    (coordnode, nodecoord) = list_of_coordnode_nodecoord_tuples_0[1]
-    ggrid.BruteDivideCube(coordnode, nodecoord)
-    #import pdb; pdb.set_trace()
-    #ggrid.ScatterPlotLabeled3((-0.1,3.1),(-0.1,3.1),(-0.1,3.1))
-
-    
-
-
-    if False:
-        startnode00 = 0
-        allaxes = ggrid.ReturnAllAxes(startnode00)
-        
-        targetax = allaxes[4] # should be [32,1]
-
-        (coordnode, nodecoord) = ggrid.FindCubeCoord(0, targetax)
-        
-        ggrid.DivideCube(coordnode, nodecoord)
-
-
-        allaxes00 = ggrid.ReturnAllAxes(startnode00)
-        
-        startnode01 = 1 
-
-        allaxes01 = ggrid.ReturnAllAxes(startnode01)
-
-        
-        coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
-
-        bCoordCheck = True # just for debugging
-
-        if bCoordCheck:
-            veclist = []
-            sumvec = None
-            for iinode, inode in enumerate(noodes.keys()):
-                thisvec = np.array(self.NodeVec[inode].Coords)
-                veclist.append(thisvec)
-                if iinode == 0:
-                    sumvec = copy(thisvec)
-                    
-                else:
-                    sumvec += thisvec
-            bSomeAreSame = False
-            for j in range(1,ggrid.NDim):
-                if bSomeAreSame:
-                    break
-                for i in range(ggrid.NDim):
-                    if veclist[j][idim] == veclist[j-1][idim]:
-                        bSomeAreSame = True
-                        break
-            if not(bSomeAreSame):
-                print("The nodes are not aligned along the axes")
-                import pdb; pdb.set_trace()
-
-            meanvec = sumvec / flot(len(veclist))
-            distlist = []
-            for ivec in veclist:
-                thisdist = np.sqrt(np.sum((ivec - meanvec) * (ivec - meanvec)))
-                distlist.append(thisdist)
-            
-            if np.max(distlist) - np.min(distlist) > 1.04-3 *  np.mean(distlist):
-                print("these are not squares")
-
-
-
-
-        if not(coords is None):
-            ggrid.DivideCube(coords, noodes)
-
-
-
-
-        for iax in allaxes01:
-            coords, noodes = ggrid.FindCubeCoord(startnode01, iax)
-            #print (iax, coords, noodes)
-
-        nodecoord = {32:(1,0), 33:(1,1), 64:(2,0), 65:(2,1)}
-        coordnode = {}
-        for key,val in nodecoord.items():
-            coordnode[val] = key
-
-
-    bEnclosedCube = ggrid.NDim == 2
-
-    if bEnclosedCube:
-
+        TargetLength = opts.length
 
         GuideDict = {}
         NodeCoord = {}
@@ -5208,550 +5443,674 @@ if __name__ == '__main__':
 
         Prob = opts.prob
         NRuns = opts.expansionruns
+        ggrid = cubenodeset_t(opts.dimension)
+        
+        ggrid.CreateNCube()
 
-        if True:
-            
-            ggrid = cubenodeset_t(opts.dimension)            
-            
-            ggrid.CreateNCube()
+        """
+        maxnbr = -1
+        minnbr = 2 * ggrid.NDim + 1
+        for inv in ggrid.NodeVec:
+            if len(inv.Neighbors) < minnbr:
+                minnbr = len(inv.Neighbors)
+            if len(inv.Neighbors) > maxnbr:
+                maxnbr = len(inv.Neighbors)
 
-            
-            FreshProb = 1.0
-            i = 0
-            print("start", ggrid.NNode); i += 1
-            if False:
-            
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(32, [33,64])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-                print(i, ggrid.NNode); i += 1
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(34, [35,66])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-                print(i, ggrid.NNode); i += 1
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1, [2,33])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-                print(i, ggrid.NNode); i += 1
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(65, [66,97])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-                print(i, ggrid.NNode); i += 1
+        import pdb; pdb.set_trace()
+        """
 
-                # this next section subdivides each of the 4 divided "petals" 
+        
+        list_of_coordnode_nodecoord_tuples_0 = ggrid.ReturnAllWellFormedCubes(0)
+        (coordnode, nodecoord, coord_path) = list_of_coordnode_nodecoord_tuples_0[1]
+        ggrid.BruteDivideCube(coordnode, nodecoord, coord_path)
+        #import pdb; pdb.set_trace()
+        #ggrid.ScatterPlotLabeled3((-0.1,3.1),(-0.1,3.1),(-0.1,3.1))
 
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1027, [1031,1028])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
+        
 
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1051, [1055,1052])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1039, [1043,1040])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1063, [1067,1064])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-
-
-
-                list_of_coordnode_nodecoord_tuples_33 = ggrid.ReturnAllWellFormedCubes(33)
-
-                import pdb; pdb.set_trace()
-                list_of_coordnode_nodecoord_tuples_1087 = ggrid.ReturnAllWellFormedCubes(1087)
-
-
-
-                coordnode, nodecoord  = list_of_coordnode_nodecoord_tuples_33[1]
-
-
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-                coordnode, nodecoord  = list_of_coordnode_nodecoord_tuples_33[0]
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-
-                import pdb; pdb.set_trace()
-
-                
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1052, [1089,1053])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1053, [1120,1057])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1120, [1122,1121])                
-                ggrid.BruteDivideCube(coordnode, nodecoord)                
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1034, [1120,1035])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1031, [1034,1082])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-                print("same check")
-                import pdb; pdb.set_trace()
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1036, [1037,1039])
-                ggrid.BruteDivideCube(coordnode, nodecoord)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                print("same check")
-                import pdb; pdb.set_trace()
-                print(ggrid.NNode)
-                # now do the central cube -- only one new node should be created
-                startnode33 = 33
-
-                list_of_coordnode_nodecoord_tuples_33 = ggrid.ReturnAllWellFormedCubes(startnode33)
-
-                import pdb; pdb.set_trace()
-                list_of_coordnode_nodecoord_tuples_1087 = ggrid.ReturnAllWellFormedCubes(1087)
-
-
-
-
-                coordnode, nodecoord  = list_of_coordnode_nodecoord_tuples_33[0]
-                ggrid.BruteDivideCube(coordnode, nodecoord) 
-
-                coordnode, nodecoord  = list_of_coordnode_nodecoord_tuples_33[1]
-                ggrid.BruteDivideCube(coordnode, nodecoord) 
-
-                import pdb; pdb.set_trace()
-
-                
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(startnode00, [1080, 1077])
-                
-                coordnode, nodecoord, iax = ggrid.PickADivisibleCube(startnode00)
-                if not(coordnode is None):
-                    ggrid.DivideCube(coordnode, nodecoord)
-
-                
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(64, [1029, 96])
-                ggrid.DivideCube(coordnode, nodecoord)
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(66, [1041, 1070])
-                ggrid.DivideCube(coordnode, nodecoord)
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(2, [1058, 3])
-                ggrid.DivideCube(coordnode, nodecoord)
-
-                
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1102, [1105, 1103]); ggrid.DivideCube(coordnode, nodecoord, nslices)
-                
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1041, [1045, 1102]); ggrid.DivideCube(coordnode, nodecoord, nslices)
-                
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1070, [1102, 1071]); ggrid.DivideCube(coordnode, nodecoord, nslices)
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(1067, [1070, 1068]); ggrid.DivideCube(coordnode, nodecoord, nslices)
-
-                #import pdb; pdb.set_trace()
-                
-                
-                (coordnode, nodecoord) = ggrid.FindCubeCoord(67, [1108, 68]); ggrid.DivideCube(coordnode, nodecoord, nslices)
-
-                #import pdb; pdb.set_trace()
-
-                # ggrid.ScatterPlotLabeled((0.9,4.1),(0.9,4.1))
-                list_of_coordnode_nodecoord_tuples = ggrid.ReturnAllWellFormedCubes(1103)
-                list_of_coordnode_nodecoord_tuples = ggrid.ReturnAllWellFormedCubes(1045)
-                list_of_coordnode_nodecoord_tuples = ggrid.ReturnAllWellFormedCubes(1102)
-            
-
-
-
-
-    if bEnclosedCube:
-
-
-        GuideDict = {}
-        NodeCoord = {}
-        CoordNode = {}
-
-        Prob = opts.prob
-        NRuns = opts.expansionruns
 
         if False:
+            startnode00 = 0
+            allaxes = ggrid.ReturnAllAxes(startnode00)
             
-            ggrid = cubenodeset_t(opts.dimension)            
-            
-            ggrid.CreateNCube()
+            targetax = allaxes[4] # should be [32,1]
 
+            (coordnode, nodecoord) = ggrid.FindCubeCoord(0, targetax)
             
-            FreshProb = 1.0
-            i = 0
-            print("start", ggrid.NNode); i += 1
-
+            ggrid.DivideCube(coordnode, nodecoord)
 
 
+            allaxes00 = ggrid.ReturnAllAxes(startnode00)
             
-            (coordnode, nodecoord) = ggrid.FindCubeCoord(32, [33,64])
-            ggrid.DivideCube(coordnode, nodecoord, nslices)
-            print(i, ggrid.NNode); i += 1
-            (coordnode, nodecoord) = ggrid.FindCubeCoord(34, [35,66])
-            ggrid.DivideCube(coordnode, nodecoord, nslices)
-            print(i, ggrid.NNode); i += 1
-            (coordnode, nodecoord) = ggrid.FindCubeCoord(1, [2,33])
-            ggrid.DivideCube(coordnode, nodecoord, nslices)
-            print(i, ggrid.NNode); i += 1
-            (coordnode, nodecoord) = ggrid.FindCubeCoord(65, [66,97])
+            startnode01 = 1 
+
+            allaxes01 = ggrid.ReturnAllAxes(startnode01)
 
             
-            ggrid.DivideCube(coordnode, nodecoord, nslices)
-            print(i, ggrid.NNode); i += 1
-            
-            print(ggrid.NNode)
+            coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
 
+            bCoordCheck = True # just for debugging
 
-            
-            
-            # now do the central cube -- only one new node should be created
-            startnode33 = 33
-            allaxes33 = ggrid.ReturnAllAxes(startnode33)
+            if bCoordCheck:
+                veclist = []
+                sumvec = None
+                for iinode, inode in enumerate(noodes.keys()):
+                    thisvec = np.array(self.NodeVec[inode].Coords)
+                    veclist.append(thisvec)
+                    if iinode == 0:
+                        sumvec = copy(thisvec)
+                        
+                    else:
+                        sumvec += thisvec
+                bSomeAreSame = False
+                for j in range(1,ggrid.NDim):
+                    if bSomeAreSame:
+                        break
+                    for i in range(ggrid.NDim):
+                        if veclist[j][idim] == veclist[j-1][idim]:
+                            bSomeAreSame = True
+                            break
+                if not(bSomeAreSame):
+                    print("The nodes are not aligned along the axes")
+                    import pdb; pdb.set_trace()
 
-            
-            #(coordnode, nodecoord) = ggrid.FindCubeCoord(startnode33,  [1053,1034] ) # [34,65])
-            #ggrid.DivideCube(coordnode, nodecoord, nslices)
-            #print(ggrid.NNode)
-
-            (coordnode, nodecoord) = ggrid.FindCubeCoord(1051,  [1055,1052] ) # [34,65])
-            ggrid.DivideCube(coordnode, nodecoord, nslices)
-
-            (coordnode, nodecoord) = ggrid.FindCubeCoord(1027,  [1031,1028] ) # [34,65])
-            ggrid.DivideCube(coordnode, nodecoord, nslices)
-
-            (coordnode, nodecoord) = ggrid.FindCubeCoord(1063,  [1067,1064] ) # [34,65])
-            ggrid.DivideCube(coordnode, nodecoord, nslices)
-
-
-            (coordnode, nodecoord) = ggrid.FindCubeCoord(1039,  [1043,1040] ) # [34,65])
-            ggrid.DivideCube(coordnode, nodecoord, nslices)
-
-            import pdb; pdb.set_trace()
-
-            ggrid.ReturnAllWellFormedCubes(33)
-
-    #import pdb; pdb.set_trace()
-    FreshProb = opts.xprob
-    NRuns = opts.expansionruns
-    sshape = [ggrid.TorLen] * ggrid.NDim
-    sshape = sshape + [NRuns]
-
-    
-    if ggrid.NDim == 2:
-        BigHist = np.zeros(tuple(sshape)).astype("int")
-
-    for ibig in range(NRuns):
-        ggrid = cubenodeset_t(opts.dimension)
-        #import pdb; pdb.set_trace()
-        ggrid.CreateNCube()
-        
-        myretval = ggrid.ExpandManyRandomly(Prob, NRuns) 
-        
-        if ggrid.NDim == 2:
-            BigHist[:,:,ibig] = ggrid.Hist
-
-            if ibig == 0:
-                ggrid.Distributions(0)
-                ggrid.Distributions(ggrid.NNode//2)
-    
-
-        
-            import pickle
-            with open('blah5_slice2_expruns100_prob_0p01.pkl', 'wb') as fp:
-                pickle.dump(BigHist, fp)
-        print("just finished run", ibig)
-    #np.savetxt('blah2.csv', BigHist)
+                meanvec = sumvec / flot(len(veclist))
+                distlist = []
+                for ivec in veclist:
+                    thisdist = np.sqrt(np.sum((ivec - meanvec) * (ivec - meanvec)))
+                    distlist.append(thisdist)
+                
+                if np.max(distlist) - np.min(distlist) > 1.04-3 *  np.mean(distlist):
+                    print("these are not squares")
 
 
 
-    bDebuggingEarly = True
-    if bDebuggingEarly:    
+
+            if not(coords is None):
+                ggrid.DivideCube(coords, noodes)
 
 
 
-        nsliceslist = [ ggrid.NSlices ]
 
-        bGoForward = True
-        bSkip = False
-        if bGoForward:
+            for iax in allaxes01:
+                coords, noodes = ggrid.FindCubeCoord(startnode01, iax)
+                #print (iax, coords, noodes)
 
-            if False:
-                ggrid.ExpandTopCheckerboardGeneral(CoordNode, NodeCoord, nsliceslist[0])
-                print("The above creates a pretty uniform criss-cross of sierpinski-ness; if nslices is 1,")
-                print(" then there are few nodes, and they  power law saturates quickly (so you have to )")
-                print("ignore everything but the first few steps. For n=5 or more, the desired deminsionality is fairly evident so that")
-                print(" these are pretty  close to 2 or 3 dimensions; I'm guessing they're not perfect due to roundoff error and some edge effects,")
-                print("which hopefully diminish for very large surfaces or very high slice couts")
+            nodecoord = {32:(1,0), 33:(1,1), 64:(2,0), 65:(2,1)}
+            coordnode = {}
+            for key,val in nodecoord.items():
+                coordnode[val] = key
 
 
-            ggrid = cubenodeset_t(opts.dimension)
-            ggrid.CreateNCube()
+        bEnclosedCube = ggrid.NDim == 2
 
-            
-            #import pdb; pdb.set_trace()
-            myretval = ggrid.ExpandManyRandomly(Prob, NRuns, nsliceslist)
-            #import pdb; pdb.set_trace()
-            nodes = []
-            for key,val in sorted(myretval.items()):
-                nodes.append([key, val[0], val[1], val[2], val[3]])
-            
-            ggrid.ScatterPlot()
-            import pdb; pdb.set_trace()
-            for pct, icoord, inodeA, inodeB, nnodes in nodes:
-                for inode in [inodeA, inodeB]:
-                    for inod in ggrid.NodeVec:
-                        inod.Amplitude = 0
-                        inod.PrevAmplitude = 0
+        if bEnclosedCube:
+
+
+            GuideDict = {}
+            NodeCoord = {}
+            CoordNode = {}
+
+            Prob = opts.prob
+            NRuns = opts.expansionruns
+
+            if True:
+                
+                ggrid = cubenodeset_t(opts.dimension)            
+                
+                ggrid.CreateNCube()
+
+                
+                FreshProb = 1.0
+                i = 0
+                print("start", ggrid.NNode); i += 1
+                if False:
+                
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(32, [33,64])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+                    print(i, ggrid.NNode); i += 1
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(34, [35,66])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+                    print(i, ggrid.NNode); i += 1
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1, [2,33])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+                    print(i, ggrid.NNode); i += 1
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(65, [66,97])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+                    print(i, ggrid.NNode); i += 1
+
+                    # this next section subdivides each of the 4 divided "petals" 
+
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1027, [1031,1028])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1051, [1055,1052])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1039, [1043,1040])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1063, [1067,1064])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+
+
+
+                    list_of_coordnode_nodecoord_tuples_33 = ggrid.ReturnAllWellFormedCubes(33)
+
+                    import pdb; pdb.set_trace()
+                    list_of_coordnode_nodecoord_tuples_1087 = ggrid.ReturnAllWellFormedCubes(1087)
+
+
+
+                    coordnode, nodecoord  = list_of_coordnode_nodecoord_tuples_33[1]
+
+
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+                    coordnode, nodecoord  = list_of_coordnode_nodecoord_tuples_33[0]
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+
+                    import pdb; pdb.set_trace()
+
+                    
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1052, [1089,1053])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1053, [1120,1057])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1120, [1122,1121])                
+                    ggrid.BruteDivideCube(coordnode, nodecoord)                
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1034, [1120,1035])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1031, [1034,1082])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+                    print("same check")
+                    import pdb; pdb.set_trace()
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1036, [1037,1039])
+                    ggrid.BruteDivideCube(coordnode, nodecoord)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    print("same check")
+                    import pdb; pdb.set_trace()
+                    print(ggrid.NNode)
+                    # now do the central cube -- only one new node should be created
+                    startnode33 = 33
+
+                    list_of_coordnode_nodecoord_tuples_33 = ggrid.ReturnAllWellFormedCubes(startnode33)
+
+                    import pdb; pdb.set_trace()
+                    list_of_coordnode_nodecoord_tuples_1087 = ggrid.ReturnAllWellFormedCubes(1087)
+
+
+
+
+                    coordnode, nodecoord  = list_of_coordnode_nodecoord_tuples_33[0]
+                    ggrid.BruteDivideCube(coordnode, nodecoord) 
+
+                    coordnode, nodecoord  = list_of_coordnode_nodecoord_tuples_33[1]
+                    ggrid.BruteDivideCube(coordnode, nodecoord) 
+
+                    import pdb; pdb.set_trace()
+
+                    
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(startnode00, [1080, 1077])
+                    
+                    coordnode, nodecoord, iax = ggrid.PickADivisibleCube(startnode00)
+                    if not(coordnode is None):
+                        ggrid.DivideCube(coordnode, nodecoord)
+
+                    
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(64, [1029, 96])
+                    ggrid.DivideCube(coordnode, nodecoord)
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(66, [1041, 1070])
+                    ggrid.DivideCube(coordnode, nodecoord)
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(2, [1058, 3])
+                    ggrid.DivideCube(coordnode, nodecoord)
+
+                    
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1102, [1105, 1103]); ggrid.DivideCube(coordnode, nodecoord, nslices)
+                    
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1041, [1045, 1102]); ggrid.DivideCube(coordnode, nodecoord, nslices)
+                    
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1070, [1102, 1071]); ggrid.DivideCube(coordnode, nodecoord, nslices)
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(1067, [1070, 1068]); ggrid.DivideCube(coordnode, nodecoord, nslices)
+
+                    #import pdb; pdb.set_trace()
+                    
+                    
+                    (coordnode, nodecoord) = ggrid.FindCubeCoord(67, [1108, 68]); ggrid.DivideCube(coordnode, nodecoord, nslices)
 
                     #import pdb; pdb.set_trace()
 
-                    ggrid.NodeVec[inode].PrevAmplitude = 1.0
-                    ggrid.NodeVec[inode].Amplitude = 1.0
+                    # ggrid.ScatterPlotLabeled((0.9,4.1),(0.9,4.1))
+                    list_of_coordnode_nodecoord_tuples = ggrid.ReturnAllWellFormedCubes(1103)
+                    list_of_coordnode_nodecoord_tuples = ggrid.ReturnAllWellFormedCubes(1045)
+                    list_of_coordnode_nodecoord_tuples = ggrid.ReturnAllWellFormedCubes(1102)
+                
 
-                    print("for pct ", pct, "icoord", icoord, "inode", inode, "nnodesincube",nnodes)
-                    print("Heat", ggrid.NNode)            
-                    ggrid.HeatEq(250, inode, True)
-                    #ggrid.MonitoredHeatEq(60, inode, bPrint=True)
+
+
+
+        if bEnclosedCube:
+
+
+            GuideDict = {}
+            NodeCoord = {}
+            CoordNode = {}
+
+            Prob = opts.prob
+            NRuns = opts.expansionruns
+
+            if False:
+                
+                ggrid = cubenodeset_t(opts.dimension)            
+                
+                ggrid.CreateNCube()
 
                 
-                    for inod in ggrid.NodeVec:
-                        inod.Amplitude = 0
-                        inod.PrevAmplitude = 0
+                FreshProb = 1.0
+                i = 0
+                print("start", ggrid.NNode); i += 1
 
-                    #inode = 0
-                    ggrid.NodeVec[inode].PrevAmplitude = 1.0
-                    ggrid.NodeVec[inode].Amplitude = 1.0
 
-                    print("for pct ", pct, "icoord", icoord, "inode", inode, "nnodesincube",nnodes)
-                    print("Touch", ggrid.NNode)
-                    ggrid.Touch(120)
+
+                
+                (coordnode, nodecoord) = ggrid.FindCubeCoord(32, [33,64])
+                ggrid.DivideCube(coordnode, nodecoord, nslices)
+                print(i, ggrid.NNode); i += 1
+                (coordnode, nodecoord) = ggrid.FindCubeCoord(34, [35,66])
+                ggrid.DivideCube(coordnode, nodecoord, nslices)
+                print(i, ggrid.NNode); i += 1
+                (coordnode, nodecoord) = ggrid.FindCubeCoord(1, [2,33])
+                ggrid.DivideCube(coordnode, nodecoord, nslices)
+                print(i, ggrid.NNode); i += 1
+                (coordnode, nodecoord) = ggrid.FindCubeCoord(65, [66,97])
+
+                
+                ggrid.DivideCube(coordnode, nodecoord, nslices)
+                print(i, ggrid.NNode); i += 1
+                
+                print(ggrid.NNode)
+
+
+                
+                
+                # now do the central cube -- only one new node should be created
+                startnode33 = 33
+                allaxes33 = ggrid.ReturnAllAxes(startnode33)
+
+                
+                #(coordnode, nodecoord) = ggrid.FindCubeCoord(startnode33,  [1053,1034] ) # [34,65])
+                #ggrid.DivideCube(coordnode, nodecoord, nslices)
+                #print(ggrid.NNode)
+
+                (coordnode, nodecoord) = ggrid.FindCubeCoord(1051,  [1055,1052] ) # [34,65])
+                ggrid.DivideCube(coordnode, nodecoord, nslices)
+
+                (coordnode, nodecoord) = ggrid.FindCubeCoord(1027,  [1031,1028] ) # [34,65])
+                ggrid.DivideCube(coordnode, nodecoord, nslices)
+
+                (coordnode, nodecoord) = ggrid.FindCubeCoord(1063,  [1067,1064] ) # [34,65])
+                ggrid.DivideCube(coordnode, nodecoord, nslices)
+
+
+                (coordnode, nodecoord) = ggrid.FindCubeCoord(1039,  [1043,1040] ) # [34,65])
+                ggrid.DivideCube(coordnode, nodecoord, nslices)
+
+                import pdb; pdb.set_trace()
+
+                ggrid.ReturnAllWellFormedCubes(33)
+
+        #import pdb; pdb.set_trace()
+        FreshProb = opts.xprob
+        NRuns = opts.expansionruns
+        sshape = [ggrid.TorLen] * ggrid.NDim
+        sshape = sshape + [NRuns]
+
+        
+        if ggrid.NDim == 2:
+            BigHist = np.zeros(tuple(sshape)).astype("int")
+
+        for ibig in range(NRuns):
+            ggrid = cubenodeset_t(opts.dimension)
+            #import pdb; pdb.set_trace()
+            ggrid.CreateNCube()
+            
+            myretval = ggrid.ExpandManyRandomly(Prob, NRuns) 
+            
+            if ggrid.NDim == 2:
+                BigHist[:,:,ibig] = ggrid.Hist
+
+                if ibig == 0:
+                    ggrid.Distributions(0)
+                    ggrid.Distributions(ggrid.NNode//2)
+        
 
             
-            for inod in ggrid.NodeVec:
-                inod.Amplitude = 0
-                inod.PrevAmplitude = 0
-
-            inode = 0
-            ggrid.NodeVec[inode].PrevAmplitude = 1.0
-            ggrid.NodeVec[inode].Amplitude = 1.0
+                import pickle
+                with open('blah5_slice2_expruns100_prob_0p01.pkl', 'wb') as fp:
+                    pickle.dump(BigHist, fp)
+            print("just finished run", ibig)
+        #np.savetxt('blah2.csv', BigHist)
 
 
-            import pdb; pdb.set_trace()
 
-            #for i in [0, len(ggrid.NodeVec)//2, len(ggrid.NodeVec)//2+1, len(ggrid.NodeVec)-1]:
-            heatresdict = {}
-            touchresdict = {}
+        bDebuggingEarly = True
+        if bDebuggingEarly:    
 
-            #for islice in  [(nslices,)]: #  [(2,),(4,),(2,4,6)]:      
-            if True:  
+
+
+            nsliceslist = [ ggrid.NSlices ]
+
+            bGoForward = True
+            bSkip = False
+            if bGoForward:
+
+                if False:
+                    ggrid.ExpandTopCheckerboardGeneral(CoordNode, NodeCoord, nsliceslist[0])
+                    print("The above creates a pretty uniform criss-cross of sierpinski-ness; if nslices is 1,")
+                    print(" then there are few nodes, and they  power law saturates quickly (so you have to )")
+                    print("ignore everything but the first few steps. For n=5 or more, the desired deminsionality is fairly evident so that")
+                    print(" these are pretty  close to 2 or 3 dimensions; I'm guessing they're not perfect due to roundoff error and some edge effects,")
+                    print("which hopefully diminish for very large surfaces or very high slice couts")
+
 
                 ggrid = cubenodeset_t(opts.dimension)
                 ggrid.CreateNCube()
 
-                NodeCoordOrig = copy(NodeCoord)
-                CoordNodeOrig = copy(CoordNode)
-
-
+                
                 #import pdb; pdb.set_trace()
-                ggrid.ExpandManyRandomly(Prob, NRuns, islice)
-
-                if False:
-                    #import pdb; pdb.set_trace()
-                    startnode01 = 41 # startnode10 = 32
-                    import pdb; pdb.set_trace()
-                    allaxes01 = ggrid.ReturnAllAxes(startnode01)   
-                    coords,nodes = ggrid.FindCubeCoord(41, [7033,8829])    
-                    coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
-                    if not(coords is None):
-                        ggrid.DivideCube(coords, noodes, nslices)
-                    import pdb; pdb.set_trace()
-
-                    startnode01 = 32 # startnode10 = 32
-                    import pdb; pdb.set_trace()
-                    allaxes01 = ggrid.ReturnAllAxes(startnode01)       
-                    coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
-                    if not(coords is None):
-                        ggrid.DivideCube(coords, noodes, nslices)
-                    import pdb; pdb.set_trace()
-                    #import pdb; pdb.set_trace()
-
-                    startnode01 = 63 # startnode10 = 32
-                    import pdb; pdb.set_trace()
-                    allaxes01 = ggrid.ReturnAllAxes(startnode01)       
-                    coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
-                    if not(coords is None):
-                        ggrid.DivideCube(coords, noodes, nslices)
-                    import pdb; pdb.set_trace()
-
-                    startnode01 = 32 # startnode10 = 32
-                    import pdb; pdb.set_trace()
-                    allaxes01 = ggrid.ReturnAllAxes(startnode01)       
-                    coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
-                    if not(coords is None):
-                        ggrid.DivideCube(coords, noodes, nslices)
-                    import pdb; pdb.set_trace()
-
-                    startnode01 = 7 # startnode10 = 32
-                    #import pdb; pdb.set_trace()
-                    allaxes01 = ggrid.ReturnAllAxes(startnode01)
-                    coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
-                    if not(coords is None):
-                        ggrid.DivideCube(coords, noodes, nslices)
-                    import pdb; pdb.set_trace()
-
-
-                    startnode01 = 64 # startnode10 = 32
-                    #import pdb; pdb.set_trace()
-                    allaxes01 = ggrid.ReturnAllAxes(startnode01)
-                    coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
-                    if not(coords is None):
-                        ggrid.DivideCube(coords, noodes, nslices)
-                    #import pdb; pdb.set_trace()
-
-
-
-
+                myretval = ggrid.ExpandManyRandomly(Prob, NRuns, nsliceslist)
+                #import pdb; pdb.set_trace()
+                nodes = []
+                for key,val in sorted(myretval.items()):
+                    nodes.append([key, val[0], val[1], val[2], val[3]])
+                
                 ggrid.ScatterPlot()
                 import pdb; pdb.set_trace()
+                for pct, icoord, inodeA, inodeB, nnodes in nodes:
+                    for inode in [inodeA, inodeB]:
+                        for inod in ggrid.NodeVec:
+                            inod.Amplitude = 0
+                            inod.PrevAmplitude = 0
 
-                bCheckGridNodes = False # Takes a long time for big conglomerations!
-                if bCheckGridNodes:
-                    ProofNeighbors(ggrid)
+                        #import pdb; pdb.set_trace()
 
-                nnodes = len(ggrid.NodeVec)
-                nnodesperdim = nnodes ** (1.0/ggrid.NDim)
-                print("Generated grid has %d nodes, or roughly %.3f nodes in each of the %d genated dimensions" % ( nnodes, nnodesperdim, ggrid.NDim))
+                        ggrid.NodeVec[inode].PrevAmplitude = 1.0
+                        ggrid.NodeVec[inode].Amplitude = 1.0
 
-                ggrid.ClearParity()
-                ggrid.MakeParity(0)
-
-
-                nnodes = len(ggrid.NodeVec)
-                
-                nnodesperdim = nnodes ** (1.0/ggrid.NDim)
-                #print("Generated grid has %d nodes, or roughly %.3f nodes in each of the %d genated dimensions" % ( nnodes, nnodesperdim, ggrid.NDim))
-                
-                print("defunct ", np.sum(np.array([ggrid.NodeVec[i].bDefunct for i in range(len(ggrid.NodeVec))])))
-   
-
-                # now analyze implies powers (and p-vals) over a bunch of nodes
-                
-                nsamples = 5
-                nsamples = np.min((ggrid.NNode, nsamples//2))
-
-                
-                indsamples = rn.sample([i for i in range(ggrid.NNode)], nsamples)
-                rn.shuffle(indsamples)
-                
-
-
-
-
-                for i in indsamples:
-
-                    inode = ggrid.NodeVec[i].Id
-                    leninit = len(ggrid.NodeVec[i].Neighbors)
-                    print("target node", i, leninit, "nslices", islice)
+                        print("for pct ", pct, "icoord", icoord, "inode", inode, "nnodesincube",nnodes)
+                        print("Heat", ggrid.NNode)            
+                        ggrid.HeatEq(250, inode, True)
+                        #ggrid.MonitoredHeatEq(60, inode, bPrint=True)
 
                     
-                    for inod in ggrid.NodeVec:
-                        inod.Amplitude = 0
-                        inod.PrevAmplitude = 0
-                    ggrid.NodeVec[inode].PrevAmplitude = 1.0
-                    ggrid.NodeVec[inode].Amplitude = 1.0
-                        
+                        for inod in ggrid.NodeVec:
+                            inod.Amplitude = 0
+                            inod.PrevAmplitude = 0
+
+                        #inode = 0
+                        ggrid.NodeVec[inode].PrevAmplitude = 1.0
+                        ggrid.NodeVec[inode].Amplitude = 1.0
+
+                        print("for pct ", pct, "icoord", icoord, "inode", inode, "nnodesincube",nnodes)
+                        print("Touch", ggrid.NNode)
+                        ggrid.Touch(120)
+
+                
+                for inod in ggrid.NodeVec:
+                    inod.Amplitude = 0
+                    inod.PrevAmplitude = 0
+
+                inode = 0
+                ggrid.NodeVec[inode].PrevAmplitude = 1.0
+                ggrid.NodeVec[inode].Amplitude = 1.0
+
+
+                import pdb; pdb.set_trace()
+
+                #for i in [0, len(ggrid.NodeVec)//2, len(ggrid.NodeVec)//2+1, len(ggrid.NodeVec)-1]:
+                heatresdict = {}
+                touchresdict = {}
+
+                #for islice in  [(nslices,)]: #  [(2,),(4,),(2,4,6)]:      
+                if True:  
+
+                    ggrid = cubenodeset_t(opts.dimension)
+                    ggrid.CreateNCube()
+
+                    NodeCoordOrig = copy(NodeCoord)
+                    CoordNodeOrig = copy(CoordNode)
+
 
                     #import pdb; pdb.set_trace()
-                    if True:
-                        print("Heat", ggrid.NNode)
-                        arrdecay = ggrid.HeatEq(250, i, True)
+                    ggrid.ExpandManyRandomly(Prob, NRuns, islice)
 
-   
-                        arr2 = arrdecay[::2]
-                        rng = np.log(1.0+np.arange(len(arr2)))
-                        rng2 = rng*rng
-                        rng3 = rng*rng*rng
-                        front = 0
+                    if False:
+                        #import pdb; pdb.set_trace()
+                        startnode01 = 41 # startnode10 = 32
+                        import pdb; pdb.set_trace()
+                        allaxes01 = ggrid.ReturnAllAxes(startnode01)   
+                        coords,nodes = ggrid.FindCubeCoord(41, [7033,8829])    
+                        coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
+                        if not(coords is None):
+                            ggrid.DivideCube(coords, noodes, nslices)
+                        import pdb; pdb.set_trace()
 
-                        slopedict = {}                
-                        if len(rng) - front > 5:
+                        startnode01 = 32 # startnode10 = 32
+                        import pdb; pdb.set_trace()
+                        allaxes01 = ggrid.ReturnAllAxes(startnode01)       
+                        coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
+                        if not(coords is None):
+                            ggrid.DivideCube(coords, noodes, nslices)
+                        import pdb; pdb.set_trace()
+                        #import pdb; pdb.set_trace()
 
-                            for i in range(len(rng)):
+                        startnode01 = 63 # startnode10 = 32
+                        import pdb; pdb.set_trace()
+                        allaxes01 = ggrid.ReturnAllAxes(startnode01)       
+                        coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
+                        if not(coords is None):
+                            ggrid.DivideCube(coords, noodes, nslices)
+                        import pdb; pdb.set_trace()
+
+                        startnode01 = 32 # startnode10 = 32
+                        import pdb; pdb.set_trace()
+                        allaxes01 = ggrid.ReturnAllAxes(startnode01)       
+                        coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
+                        if not(coords is None):
+                            ggrid.DivideCube(coords, noodes, nslices)
+                        import pdb; pdb.set_trace()
+
+                        startnode01 = 7 # startnode10 = 32
+                        #import pdb; pdb.set_trace()
+                        allaxes01 = ggrid.ReturnAllAxes(startnode01)
+                        coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
+                        if not(coords is None):
+                            ggrid.DivideCube(coords, noodes, nslices)
+                        import pdb; pdb.set_trace()
 
 
-                                if len(rng) - i - front < 5:
-                                    break
+                        startnode01 = 64 # startnode10 = 32
+                        #import pdb; pdb.set_trace()
+                        allaxes01 = ggrid.ReturnAllAxes(startnode01)
+                        coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
+                        if not(coords is None):
+                            ggrid.DivideCube(coords, noodes, nslices)
+                        #import pdb; pdb.set_trace()
 
-                                nrng = len(rng)
 
-                                heatres = linregress(rng[front:nrng-i],np.log(arr2[front:nrng-i]))
-                                heatresparab = linregress(rng2[front:nrng-i],np.log(arr2[front:nrng-i]))
-                                heatrestert = linregress(rng3[front:nrng-i],np.log(arr2[front:nrng-i]))
-                                
 
-                                ndata = len(rng[front:nrng-i])
 
-                                print("slopeheat", heatres.slope, len(rng) - front)
-                                print("RESHEAT: N: %d node %d nslice %s slope: %f pval %f  slopequadr: %f pvalquadr %f slopetert: %f pvaltert %f " % (ndata, i, str(islice), heatres.slope, heatres.pvalue, heatresparab.slope, heatresparab.pvalue, heatrestert.slope, heatrestert.pvalue))
-                                slopedict[len(rng) - front] = {"HEATSLOPE":heatres.slope, "HEATPVAL":heatres.pvalue,  "TOUCHSLOPE":heatres.slope, "TOUCHPVAL":heatres.pvalue} #, "SLOPEDICT":slopedict}
-                           
-                                heatresdict[(tuple(islice), len(rng)-i)] = {"HEATSLOPE":heatres.slope, "HEATPVAL":heatres.pvalue, }
-                        
+                    ggrid.ScatterPlot()
+                    import pdb; pdb.set_trace()
 
-                    for inod in ggrid.NodeVec:
-                        inod.Amplitude = 0
-                        inod.PrevAmplitude = 0
+                    bCheckGridNodes = False # Takes a long time for big conglomerations!
+                    if bCheckGridNodes:
+                        ProofNeighbors(ggrid)
 
-                    ggrid.NodeVec[i].Amplitude = 1.0
-                    ggrid.NodeVec[i].PrevAmplitude = 1.0
+                    nnodes = len(ggrid.NodeVec)
+                    nnodesperdim = nnodes ** (1.0/ggrid.NDim)
+                    print("Generated grid has %d nodes, or roughly %.3f nodes in each of the %d genated dimensions" % ( nnodes, nnodesperdim, ggrid.NDim))
+
+                    ggrid.ClearParity()
+                    ggrid.MakeParity(0)
+
+
+                    nnodes = len(ggrid.NodeVec)
+                    
+                    nnodesperdim = nnodes ** (1.0/ggrid.NDim)
+                    #print("Generated grid has %d nodes, or roughly %.3f nodes in each of the %d genated dimensions" % ( nnodes, nnodesperdim, ggrid.NDim))
+                    
+                    print("defunct ", np.sum(np.array([ggrid.NodeVec[i].bDefunct for i in range(len(ggrid.NodeVec))])))
+    
+
+                    # now analyze implies powers (and p-vals) over a bunch of nodes
+                    
+                    nsamples = 5
+                    nsamples = np.min((ggrid.NNode, nsamples//2))
 
                     
+                    indsamples = rn.sample([i for i in range(ggrid.NNode)], nsamples)
+                    rn.shuffle(indsamples)
                     
-                    if True: 
-                        print("Touch", ggrid.NNode)
-                        touchgrow = ggrid.Touch(120)
+
+
+
+
+                    for i in indsamples:
+
+                        inode = ggrid.NodeVec[i].Id
+                        leninit = len(ggrid.NodeVec[i].Neighbors)
+                        print("target node", i, leninit, "nslices", islice)
+
                         
-                        arr2 = copy(touchgrow)
-                        rng = np.log(1.0+np.arange(len(arr2)))
-                        rng2 = rng*rng
-                        rng3 = rng*rng*rng
-                        front = 0
-
-
-                        slopedict = {}
-                        if len(rng) - front > 5:                    
-                            for i in range(len(rng)):
-                                nrng = len(rng)
-                                touchres = linregress(rng[front:nrng-i],np.log(arr2[front:nrng-i]))
-                                touchresparab = linregress(rng2[front:nrng-i],np.log(arr2[front:nrng-i]))
-                                touchrestert = linregress(rng3[front:nrng-i],np.log(arr2[front:nrng-i]))
-
-                                ndata = len(rng[front:nrng-i])
-
-                                print("touchslope", touchres.slope, len(rng) - front)
-
-                                print("RESTOUCH: N: %d node %d nslice %s slope: %f pval %f  slopequadr: %f pvalquadr %f slopetert: %f pvaltert %f" % (ndata, i, str(islice), touchres.slope, touchres.pvalue, touchresparab.slope, touchresparab.pvalue, touchrestert.slope, touchrestert.pvalue))
-
-                                touchresdict[(tuple(islice), len(rng)-i)] = {"TOUCHSLOPE":touchres.slope, "TOUCHPVAL":touchres.pvalue}
+                        for inod in ggrid.NodeVec:
+                            inod.Amplitude = 0
+                            inod.PrevAmplitude = 0
+                        ggrid.NodeVec[inode].PrevAmplitude = 1.0
+                        ggrid.NodeVec[inode].Amplitude = 1.0
                             
-                                #import pdb; pdb.set_trace()
 
-                    
+                        #import pdb; pdb.set_trace()
+                        if True:
+                            print("Heat", ggrid.NNode)
+                            arrdecay = ggrid.HeatEq(250, i, True)
 
-                    
-                    for inod in ggrid.NodeVec:
-                        inod.Amplitude = 0
-                        inod.PrevAmplitude = 0
+    
+                            arr2 = arrdecay[::2]
+                            rng = np.log(1.0+np.arange(len(arr2)))
+                            rng2 = rng*rng
+                            rng3 = rng*rng*rng
+                            front = 0
 
-                    ggrid.NNeighborHistogram()
+                            slopedict = {}                
+                            if len(rng) - front > 5:
 
-            heatdf = pd.DataFrame.from_dict(heatresdict,orient="index")
-            touchdf = pd.DataFrame.from_dict(touchresdict,orient="index")
-            #import pdb; pdb.set_trace()
+                                for i in range(len(rng)):
 
+
+                                    if len(rng) - i - front < 5:
+                                        break
+
+                                    nrng = len(rng)
+
+                                    heatres = linregress(rng[front:nrng-i],np.log(arr2[front:nrng-i]))
+                                    heatresparab = linregress(rng2[front:nrng-i],np.log(arr2[front:nrng-i]))
+                                    heatrestert = linregress(rng3[front:nrng-i],np.log(arr2[front:nrng-i]))
+                                    
+
+                                    ndata = len(rng[front:nrng-i])
+
+                                    print("slopeheat", heatres.slope, len(rng) - front)
+                                    print("RESHEAT: N: %d node %d nslice %s slope: %f pval %f  slopequadr: %f pvalquadr %f slopetert: %f pvaltert %f " % (ndata, i, str(islice), heatres.slope, heatres.pvalue, heatresparab.slope, heatresparab.pvalue, heatrestert.slope, heatrestert.pvalue))
+                                    slopedict[len(rng) - front] = {"HEATSLOPE":heatres.slope, "HEATPVAL":heatres.pvalue,  "TOUCHSLOPE":heatres.slope, "TOUCHPVAL":heatres.pvalue} #, "SLOPEDICT":slopedict}
+                            
+                                    heatresdict[(tuple(islice), len(rng)-i)] = {"HEATSLOPE":heatres.slope, "HEATPVAL":heatres.pvalue, }
+                            
+
+                        for inod in ggrid.NodeVec:
+                            inod.Amplitude = 0
+                            inod.PrevAmplitude = 0
+
+                        ggrid.NodeVec[i].Amplitude = 1.0
+                        ggrid.NodeVec[i].PrevAmplitude = 1.0
+
+                        
+                        
+                        if True: 
+                            print("Touch", ggrid.NNode)
+                            touchgrow = ggrid.Touch(120)
+                            
+                            arr2 = copy(touchgrow)
+                            rng = np.log(1.0+np.arange(len(arr2)))
+                            rng2 = rng*rng
+                            rng3 = rng*rng*rng
+                            front = 0
+
+
+                            slopedict = {}
+                            if len(rng) - front > 5:                    
+                                for i in range(len(rng)):
+                                    nrng = len(rng)
+                                    touchres = linregress(rng[front:nrng-i],np.log(arr2[front:nrng-i]))
+                                    touchresparab = linregress(rng2[front:nrng-i],np.log(arr2[front:nrng-i]))
+                                    touchrestert = linregress(rng3[front:nrng-i],np.log(arr2[front:nrng-i]))
+
+                                    ndata = len(rng[front:nrng-i])
+
+                                    print("touchslope", touchres.slope, len(rng) - front)
+
+                                    print("RESTOUCH: N: %d node %d nslice %s slope: %f pval %f  slopequadr: %f pvalquadr %f slopetert: %f pvaltert %f" % (ndata, i, str(islice), touchres.slope, touchres.pvalue, touchresparab.slope, touchresparab.pvalue, touchrestert.slope, touchrestert.pvalue))
+
+                                    touchresdict[(tuple(islice), len(rng)-i)] = {"TOUCHSLOPE":touchres.slope, "TOUCHPVAL":touchres.pvalue}
+                                
+                                    #import pdb; pdb.set_trace()
+
+                        
+
+                        
+                        for inod in ggrid.NodeVec:
+                            inod.Amplitude = 0
+                            inod.PrevAmplitude = 0
+
+                        ggrid.NNeighborHistogram()
+
+                heatdf = pd.DataFrame.from_dict(heatresdict,orient="index")
+                touchdf = pd.DataFrame.from_dict(touchresdict,orient="index")
+                #import pdb; pdb.set_trace()
 
 
 
 
 """
+
+
+import pickle
+f = open('blah.pkl', 'rb')
+ggrid = pickle.load(f)
+f.close()
+
+f = open('blah3.pkl', 'rb')
+coords,nodes,coordpath = pickle.load(f)
+f.close()
+
+
+
+
+
 
 
 
@@ -5813,4 +6172,5 @@ NDIV 2545 29146
 %run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes12.py  -t 1000  --xprob 1.0 --maxnode 5000
 
 %run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes12.py  -t 10000  --xprob 1.0 --maxnode 8000 --dim 3
+%run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes12.py  -t 100000  --xprob 1.0 --maxnode 80000 --dim 3
 """
