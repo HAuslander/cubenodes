@@ -875,7 +875,7 @@ class cubenodeset_t():
 
         self.NodeHistory = {} # all cubes -- the values will be of class
 
-        self.TorLen = 32
+        self.TorLen = 8 # 32
         self.Cubes = [] # soecify the cubes with a 2-tuple consisting of an axis (self.Dim neighboring nodes) and the opposing node; we could also
                         # specify the fractality, but that can be accessed by way of the nieghbors
                         # THESE ARE ONLY THE CUBES THAT -- AS LONG AS ALL THE NODES OF THE CUBE HAVE 2*DIM NEIGHBORS, CAN BE DIVIDED
@@ -1753,8 +1753,7 @@ class cubenodeset_t():
             nodecoord[ix] = thisvec
             coordnode[thisvec] = ix          
 
-        
-        magnification = 0        
+       
         for idim in range(self.NDim):
             for id in range(torlen**self.NDim):
                 revvec = UpDn(+1, id, idim, torlen)  
@@ -1776,7 +1775,7 @@ class cubenodeset_t():
             #self.NodeVec[id].Neighbors.sort()
             self.NodeVec[id].Neighbors.sort(key=lambda x: x.Id, reverse=False)
             
-                
+        
         idlistsofar = [xnode.Id for xnode in self.NodeVec]
         for inode in idlistsofar:
             """ we could simply add in the vectors as follows, and
@@ -1800,35 +1799,34 @@ class cubenodeset_t():
             for theseaxes in allaxes:
                 
                 bTryPrevNeighborsToo = False
-                
-
-                
                 (loccoordnode, locnodecoord) = self.FindCubeCoord(inode, theseaxes)
-
+                """
                 thiscube = list(locnodecoord.keys())
 
                 thiscube.sort()
                 thiscube = tuple(thiscube)
                 if not(thiscube in self.Cubes):
                     self.Cubes.append(thiscube)
+                """
 
 
-
-
+        """
         for inode in idlistsofar:
             thislist = []
             for icube in self.Cubes:
                 if inode in icube:
                     thislist.append(icube)
             thislist.sort()
-            """ As noted, self.NodeCubes is only used to make it easier to run through all the cubes converging on a point
-            as opposed to doing all that searching every time you consider which  cubes can be subdividied
-            """
+            #A s noted, self.NodeCubes is only used to make it easier to run through all the cubes converging on a point
+            # as opposed to doing all that searching every time you consider which  cubes can be subdividied
             self.NodeCubes[inode] = thislist
+        """
         
         NodeCoord = nodecoord
         CoordNode = coordnode 
 
+
+        
         bHistory = True
         if bHistory:
             for id, coord in NodeCoord.items():
@@ -2467,7 +2465,7 @@ class cubenodeset_t():
             coordnode[thisvec] = relevantnode
             nodecoord[relevantnode] = thisvec
 
-        if bUsingFarNeighbors:
+        if bUsingFarNeighbors:         
             innercoordnode, innernodecoord = self.FindOppositeNode(Id, nbrsubset)
             if not(innercoordnode is None):
                 # there are interior points in the cube already -- must abort
@@ -2511,7 +2509,7 @@ class cubenodeset_t():
 
                 nbrs = []
 
-                #import pdb; pdb.set_trace()
+                
                 for itup in thesenodes:
                     subsetnbrs = []
                     thesenbrs = self.NodeVec[itup].NeighborIds()
@@ -2527,20 +2525,21 @@ class cubenodeset_t():
                     nbrs.append(subsetnbrs)
                     
                     
-
+                
                 intersected = list(set(nbrs[0]).intersection(*nbrs[1:]))
 
                 dellist = []
                 for ixtec in intersected:
                     if ixtec in  nodecoord.keys():
                         dellist.append(ixtec)
+                
                 for idel in dellist:                    
                     intersected.remove(idel) 
                     if (idel, ) != (Id,) and len(idel) != 0:
                             print("dellist should only contain 1 element! And it should be Id -- what's going on?")
-
+                
                 if len(intersected) != 1:
-                    #import pdb; pdb.set_trace()
+                    import pdb; pdb.set_trace()
                     return None, None # rerun with minmag
                 #import pdb; pdb.set_trace()
                 if len(self.NodeVec[thisnode].Neighbors) != 2 * self.NDim:
@@ -2565,7 +2564,7 @@ class cubenodeset_t():
                         else:
                             nextnodex.append(self.FartherNeighbor(thisnode, jnbr)[0])
             
-            #import pdb; pdb.set_trace()
+            import pdb; pdb.set_trace()
 
 
             intersected = list(set(nextnodes[0]).intersection(*nextnodes))
@@ -3288,10 +3287,48 @@ class cubenodeset_t():
         
         return( rn.choice(resallax) )
 
+    
+    def NodeFromCoords(self, coordtup, err=1.0e-5):
+        x0 = np.array((coordtup))
+        for i, ix in enumerage(x0):
+            if ix < 0:
+                x[ix] += self.TorLen
+
+
+        myretval = []
+        for inode in self.NodeVec:
+            idist = np.linalg.norm(x0, np.array(inode.Coords))
+            if idist <= err:
+                myretval.append(inode.Id)
+        return myretval
+    
+    def GetAxisNodes(self, Id):
+        def DifferWhere(x,y):
+            myretval = []
+            for i in range(len(x)):
+                if x[i] != y[i]:
+                    myretval.append(i)
+            return myretval
+        nbrs = self.NodeVec[Id].Neighbors
+        IdCoord = self.NodeVec[Id].Coords
+
+        myretval = [None for i in range(self.NDim)]
+        for inbr in nbrs:
+            inbrcoord = self.NodeVec[inbr].Coords
+            whichax = DifferWhere(inbrcoord, IdCoord)
+            if len(whichax) == 1:
+                nominaldist = inbrcoord[whichax[0]] - IdCoord[whichax[0]]
+                if nominaldist > 1.0: # we know the max nbr dist is 1
+                    nominaldist -= self.TorLen     
+                if nominaldist > 0:
+                    myretval[whichax[0]] = inbr
+        return myretval
+
+
+
     def ScatterPlot(self, xminxmax=None, yminymax=None, bEcho=None):
         # even though this is designed for 2-d graphs, I will make the data-acquisition loop general
 
-        
         dataarr = np.zeros((self.NDim, len(self.NodeVec)))
 
         iinput = 0
@@ -3304,18 +3341,19 @@ class cubenodeset_t():
                 if thisy < yminymax[0] or thisy > yminymax[1]:
                     continue           
             if not(bEcho is None):
-                print(inode.Id, inode.Coords, inode.NeighborIds())     
+                print(inode.Id, inode.Coords, inode.Neighbors)     
             dataarr[:,iinput] = inode.Coords
             iinput += 1
 
 
         x = dataarr[0,:]
         y = dataarr[1,:]
-        plt.scatter(x, y)
+        s = 4
+        plt.scatter(x, y, s)
         if not(xminxmax is None):
             plt.axis([xminxmax[0], xminxmax[1], yminymax[0], yminymax[1]])
         plt.show()
-        
+    
 
     def ScatterPlotLabeled(self, xminxmax, yminymax, bEcho=None):
         # even though this is designed for 2-d graphs, I will make the data-acquisition loop general
@@ -3347,7 +3385,7 @@ class cubenodeset_t():
             if thisy < yminymax[0] or thisy > yminymax[1]:
                 continue           
             if not(bEcho is None):
-                print(inode.Id, inode.Coords, inode.NeighborIds())     
+                print(inode.Id, inode.Coords, inode.Neighbors)     
             dataarr.append( (thisx, thisy) )
             labels.append( thislabel )
             iinput += 1
@@ -3356,12 +3394,466 @@ class cubenodeset_t():
         x = [icomp[0] for icomp in dataarr]
         y = [icomp[1] for icomp in dataarr]
         fig, ax = plt.subplots()
-        ax.scatter(x, y)
+        s = 4
+        ax.scatter(x, y, s)
         for i, txt in enumerate(labels):
             ax.annotate(txt, (x[i], y[i]))
-        #if not(xminxmax is None):
-        #    plt.axis([xminxmax[0], xminxmax[1], yminymax[0], yminymax[1]])
+
         plt.show()
+        
+
+    def ScatterPlot3(self, xminxmax=None, yminymax=None, zminzmax=None, bEcho=None):
+        # even though this is designed for 2-d graphs, I will make the data-acquisition loop general
+
+        dataarr = np.zeros((self.NDim, len(self.NodeVec)))
+
+        iinput = 0
+        for ii,inode in enumerate(self.NodeVec):
+            thisx, thisy, thisz = inode.Coords
+            if not(xminxmax is None):
+                if thisx < xminxmax[0] or thisx > xminxmax[1]:
+                    continue
+            if not(yminymax is None):
+                if thisy < yminymax[0] or thisy > yminymax[1]:
+                    continue           
+            if not(zminzmax is None):
+                if thisz < zminzmax[0] or thisz > zminzmax[1]:
+                    continue   
+            if not(bEcho is None):
+                print(inode.Id, inode.Coords, inode.Neighbors)     
+            dataarr[:,iinput] = inode.Coords
+            iinput += 1
+
+
+        x = dataarr[0,:]
+        y = dataarr[1,:]
+        z = dataarr[2,:]
+
+
+
+        from mpl_toolkits.mplot3d import Axes3D
+
+
+        # Create a figure and 3D axis
+        fig = plt.figure(figsize=(8,6))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Create scatter plot
+        ax.scatter3D(x, y, z, color='red', marker='o')
+
+        # Labels
+        ax.set_xlabel('X Axis')
+        ax.set_ylabel('Y Axis')
+        ax.set_zlabel('Z Axis')
+        ax.set_title('Cubes x:%s, y:%s z:%s' % (str(xminxmax), str(yminymax), str(zminzmax)))
+
+
+        plt.show()
+        
+
+
+
+    def ScatterPlotLabeled3(self, xminxmax, yminymax, zminzmax, bEcho=None):
+        # even though this is designed for 2-d graphs, I will make the data-acquisition loop general
+        # https://stackoverflow.com/questions/10374930/annotating-a-3d-scatter-plot
+        
+        dataarr = []
+        labels = []
+        iinput = 0
+        for ii,inode in enumerate(self.NodeVec):
+            thisx, thisy, thisz = inode.Coords
+            
+            if xminxmax[0] <= 0 and thisx > self.TorLen//2:
+                thisx -= self.TorLen
+            if yminymax[0] <= 0 and thisy > self.TorLen//2:
+                thisy -= self.TorLen
+            if zminzmax[0] <= 0 and thisz > self.TorLen//2:
+                thisz -= self.TorLen
+                
+            if xminxmax[1] >= self.TorLen//2 and thisx < np.min([xminxmax[0], self.TorLen//2]) :
+                thisx += self.TorLen
+            if yminymax[1]  >= self.TorLen//2 and thisy < np.min([yminymax[0], self.TorLen//2]) :
+                thisy += self.TorLen
+            if zminzmax[1]  >= self.TorLen//2 and thisy < np.min([zminzmax[0], self.TorLen//2]) :
+                thisz += self.TorLen
+                
+
+
+
+            thislabel = str(inode.Id)
+
+            if thisx < xminxmax[0] or thisx > xminxmax[1]:
+                continue
+            if thisy < yminymax[0] or thisy > yminymax[1]:
+                continue           
+            if thisz < zminzmax[0] or thisz > zminzmax[1]:
+                continue           
+            if not(bEcho is None):
+                print(inode.Id, inode.Coords, inode.Neighbors)     
+            dataarr.append( (thisx, thisy, thisz) )
+            labels.append( thislabel )
+            iinput += 1
+
+
+        x = [icomp[0] for icomp in dataarr]
+        y = [icomp[1] for icomp in dataarr]
+        z = [icomp[2] for icomp in dataarr]
+
+
+
+        from mpl_toolkits.mplot3d import Axes3D
+
+
+        # Create a figure and 3D axis
+        s = 10
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+
+        for i in range(len(x)): #plot each point + it's index as text above
+            ax.scatter(x[i],y[i],z[i],color='b') 
+            ax.text(x[i],y[i],z[i],  '%s' % (labels[i]), size=s, zorder=1,  
+            color='k') 
+        plt.show()
+
+
+
+    def ScatterPlotLabeledColored3(self, xminxmax, yminymax, zminzmax, bEcho=None):
+        # even though this is designed for 2-d graphs, I will make the data-acquisition loop general
+        # https://stackoverflow.com/questions/10374930/annotating-a-3d-scatter-plot
+        
+        dataarr4 = []
+        labels4 = []
+        dataarr5 = []
+        labels5 = []
+        dataarr6 = []
+        labels6 = []
+        iinput = 0
+        for ii,inode in enumerate(self.NodeVec):
+            thisx, thisy, thisz = inode.Coords
+            
+            if xminxmax[0] <= 0 and thisx > self.TorLen//2:
+                thisx -= self.TorLen
+            if yminymax[0] <= 0 and thisy > self.TorLen//2:
+                thisy -= self.TorLen
+            if zminzmax[0] <= 0 and thisz > self.TorLen//2:
+                thisz -= self.TorLen
+                
+            if xminxmax[1] >= self.TorLen//2 and thisx < np.min([xminxmax[0], self.TorLen//2]) :
+                thisx += self.TorLen
+            if yminymax[1]  >= self.TorLen//2 and thisy < np.min([yminymax[0], self.TorLen//2]) :
+                thisy += self.TorLen
+            if zminzmax[1]  >= self.TorLen//2 and thisy < np.min([zminzmax[0], self.TorLen//2]) :
+                thisz += self.TorLen
+                
+
+            thislabel = str(inode.Id)
+
+            if thisx < xminxmax[0] or thisx > xminxmax[1]:
+                continue
+            if thisy < yminymax[0] or thisy > yminymax[1]:
+                continue           
+            if thisz < zminzmax[0] or thisz > zminzmax[1]:
+                continue           
+            if not(bEcho is None):
+                print(inode.Id, inode.Coords, inode.Neighbors)     
+            
+            nbrlen = len(inode.Neighbors)
+            if nbrlen == 6:
+                dataarr6.append( (thisx, thisy, thisz) )
+                labels6.append( thislabel )
+            elif nbrlen == 5:
+                dataarr5.append( (thisx, thisy, thisz) )
+                labels5.append( thislabel )
+            elif nbrlen == 4:
+                dataarr4.append( (thisx, thisy, thisz) )
+                labels4.append( thislabel )
+            iinput += 1
+
+
+        x6 = [icomp[0] for icomp in dataarr6]
+        y6 = [icomp[1] for icomp in dataarr6]
+        z6 = [icomp[2] for icomp in dataarr6]
+
+
+        x5 = [icomp[0] for icomp in dataarr5]
+        y5 = [icomp[1] for icomp in dataarr5]
+        z5 = [icomp[2] for icomp in dataarr5]
+
+
+        x4 = [icomp[0] for icomp in dataarr4]
+        y4 = [icomp[1] for icomp in dataarr4]
+        z4 = [icomp[2] for icomp in dataarr4]
+
+
+
+        from mpl_toolkits.mplot3d import Axes3D
+
+
+        # Create a figure and 3D axis
+        s = 8
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+
+        for i in range(len(x6)): #plot each point + it's index as text above
+            ax.scatter(x6[i],y6[i],z6[i],color='b') 
+            ax.text(x6[i],y6[i],z6[i],  '%s' % (labels6[i]), size=s, zorder=1,  
+            color='k') 
+        for i in range(len(x5)): #plot each point + it's index as text above
+            ax.scatter(x5[i],y5[i],z5[i],color='r') 
+            ax.text(x5[i],y5[i],z5[i],  '%s' % (labels5[i]), size=s, zorder=1,  
+            color='k') 
+        for i in range(len(x4)): #plot each point + it's index as text above
+            ax.scatter(x4[i],y4[i],z4[i],color='g') 
+            ax.text(x4[i],y4[i],z4[i],  '%s' % (labels4[i]), size=s, zorder=1,  
+            color='k') 
+
+
+        plt.show()
+
+
+
+    def ScatterPlotLabeledColoredPacked3(self, xminxmax, yminymax, zminzmax, bEcho=None):
+        # even though this is designed for 2-d graphs, I will make the data-acquisition loop general
+        # https://stackoverflow.com/questions/10374930/annotating-a-3d-scatter-plot
+        
+        dataarr4 = []
+        labels4 = []
+        dataarr5 = []
+        labels5 = []
+        dataarr6 = []
+        labels6 = []
+        iinput = 0
+        for ii,inode in enumerate(self.NodeVec):
+            if len(inode.Neighbors) != 2 * self.NDim:
+                continue
+
+            thisx, thisy, thisz = inode.Coords
+            
+            if xminxmax[0] <= 0 and thisx > self.TorLen//2:
+                thisx -= self.TorLen
+            if yminymax[0] <= 0 and thisy > self.TorLen//2:
+                thisy -= self.TorLen
+            if zminzmax[0] <= 0 and thisz > self.TorLen//2:
+                thisz -= self.TorLen
+                
+            if xminxmax[1] >= self.TorLen//2 and thisx < np.min([xminxmax[0], self.TorLen//2]) :
+                thisx += self.TorLen
+            if yminymax[1]  >= self.TorLen//2 and thisy < np.min([yminymax[0], self.TorLen//2]) :
+                thisy += self.TorLen
+            if zminzmax[1]  >= self.TorLen//2 and thisy < np.min([zminzmax[0], self.TorLen//2]) :
+                thisz += self.TorLen
+                
+
+            thislabel = str(inode.Id)
+
+            if thisx < xminxmax[0] or thisx > xminxmax[1]:
+                continue
+            if thisy < yminymax[0] or thisy > yminymax[1]:
+                continue           
+            if thisz < zminzmax[0] or thisz > zminzmax[1]:
+                continue           
+            if not(bEcho is None):
+                print(inode.Id, inode.Coords, inode.Neighbors)     
+            
+            nbrlen = len(inode.Neighbors)
+            if nbrlen == 6:
+                dataarr6.append( (thisx, thisy, thisz) )
+                labels6.append( thislabel )
+            elif nbrlen == 5:
+                dataarr5.append( (thisx, thisy, thisz) )
+                labels5.append( thislabel )
+            elif nbrlen == 4:
+                dataarr4.append( (thisx, thisy, thisz) )
+                labels4.append( thislabel )
+            iinput += 1
+
+
+        x6 = [icomp[0] for icomp in dataarr6]
+        y6 = [icomp[1] for icomp in dataarr6]
+        z6 = [icomp[2] for icomp in dataarr6]
+
+
+        x5 = [icomp[0] for icomp in dataarr5]
+        y5 = [icomp[1] for icomp in dataarr5]
+        z5 = [icomp[2] for icomp in dataarr5]
+
+
+        x4 = [icomp[0] for icomp in dataarr4]
+        y4 = [icomp[1] for icomp in dataarr4]
+        z4 = [icomp[2] for icomp in dataarr4]
+
+
+
+        from mpl_toolkits.mplot3d import Axes3D
+
+
+        # Create a figure and 3D axis
+        s = 8
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+
+        for i in range(len(x6)): #plot each point + it's index as text above
+            ax.scatter(x6[i],y6[i],z6[i],color='b') 
+            ax.text(x6[i],y6[i],z6[i],  '%s' % (labels6[i]), size=s, zorder=1,  
+            color='k') 
+        for i in range(len(x5)): #plot each point + it's index as text above
+            ax.scatter(x5[i],y5[i],z5[i],color='r') 
+            ax.text(x5[i],y5[i],z5[i],  '%s' % (labels5[i]), size=s, zorder=1,  
+            color='k') 
+        for i in range(len(x4)): #plot each point + it's index as text above
+            ax.scatter(x4[i],y4[i],z4[i],color='g') 
+            ax.text(x4[i],y4[i],z4[i],  '%s' % (labels4[i]), size=s, zorder=1,  
+            color='k') 
+
+
+        plt.show()
+
+
+    def ScatterPlotColored3(self, xminxmax, yminymax, zminzmax, bEcho=None):
+        # even though this is designed for 2-d graphs, I will make the data-acquisition loop general
+        # https://stackoverflow.com/questions/10374930/annotating-a-3d-scatter-plot
+        
+        dataarr4 = []
+        labels4 = []
+        dataarr5 = []
+        dataarr6 = []
+        iinput = 0
+        for ii,inode in enumerate(self.NodeVec):
+            thisx, thisy, thisz = inode.Coords
+            
+            if xminxmax[0] <= 0 and thisx > self.TorLen//2:
+                thisx -= self.TorLen
+            if yminymax[0] <= 0 and thisy > self.TorLen//2:
+                thisy -= self.TorLen
+            if zminzmax[0] <= 0 and thisz > self.TorLen//2:
+                thisz -= self.TorLen
+                
+            if xminxmax[1] >= self.TorLen//2 and thisx < np.min([xminxmax[0], self.TorLen//2]) :
+                thisx += self.TorLen
+            if yminymax[1]  >= self.TorLen//2 and thisy < np.min([yminymax[0], self.TorLen//2]) :
+                thisy += self.TorLen
+            if zminzmax[1]  >= self.TorLen//2 and thisy < np.min([zminzmax[0], self.TorLen//2]) :
+                thisz += self.TorLen
+                
+
+            thislabel = str(inode.Id)
+
+            if thisx < xminxmax[0] or thisx > xminxmax[1]:
+                continue
+            if thisy < yminymax[0] or thisy > yminymax[1]:
+                continue           
+            if thisz < zminzmax[0] or thisz > zminzmax[1]:
+                continue           
+            if not(bEcho is None):
+                print(inode.Id, inode.Coords, inode.Neighbors)     
+            
+            nbrlen = len(inode.Neighbors)
+            if nbrlen == 6:
+                dataarr6.append( (thisx, thisy, thisz) )
+
+            elif nbrlen == 5:
+                dataarr5.append( (thisx, thisy, thisz) )
+
+            elif nbrlen == 4:
+                dataarr4.append( (thisx, thisy, thisz) )
+
+            iinput += 1
+
+
+        x6 = [icomp[0] for icomp in dataarr6]
+        y6 = [icomp[1] for icomp in dataarr6]
+        z6 = [icomp[2] for icomp in dataarr6]
+
+
+        x5 = [icomp[0] for icomp in dataarr5]
+        y5 = [icomp[1] for icomp in dataarr5]
+        z5 = [icomp[2] for icomp in dataarr5]
+
+
+        x4 = [icomp[0] for icomp in dataarr4]
+        y4 = [icomp[1] for icomp in dataarr4]
+        z4 = [icomp[2] for icomp in dataarr4]
+
+
+
+        from mpl_toolkits.mplot3d import Axes3D
+
+
+        # Create a figure and 3D axis
+        s = 8
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+
+        for i in range(len(x6)): #plot each point + it's index as text above
+            ax.scatter(x6[i],y6[i],z6[i],color='b') 
+            
+        for i in range(len(x5)): #plot each point + it's index as text above
+            ax.scatter(x5[i],y5[i],z5[i],color='r') 
+            
+        for i in range(len(x4)): #plot each point + it's index as text above
+            ax.scatter(x4[i],y4[i],z4[i],color='g') 
+            
+
+
+        plt.show()
+       
+    def Scat(self, Id, dist, wLabels=True):
+        x = np.array(self.NodeVec[Id].Coords)        
+        if self.NDim == 2:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            if wLabels:
+                self.ScatterPlotLabeled(xx, yy)
+            else:
+                self.ScatterPlot(xx, yy)
+        if self.NDim == 3:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            zz = (x[2] - 0.5*dist, x[2] + 0.5*dist)            
+            if wLabels:
+                self.ScatterPlotLabeled3(xx, yy, zz)
+            else:
+                self.ScatterPlot3(xx, yy, zz)
+
+        
+    def ScatColored(self, Id, dist, wLabels=True):
+
+        x = np.array(self.NodeVec[Id].Coords)
+
+        if self.NDim == 2:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            if wLabels:
+                self.ScatterPlotLabeled(xx, yy)
+            else:
+                self.ScatterPlot(xx, yy)
+        if self.NDim == 3:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            zz = (x[2] - 0.5*dist, x[2] + 0.5*dist)
+            if wLabels:
+                self.ScatterPlotLabeledColored3(xx, yy, zz)
+            else:
+                self.ScatterPlotColored3(xx, yy, zz)
+
+        
+    def ScatColoredPacked(self, Id, dist):
+
+        x = np.array(self.NodeVec[Id].Coords)
+
+        if self.NDim == 2:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            if wLabels:
+                self.ScatterPlotLabeled(xx, yy)
+            else:
+                self.ScatterPlot(xx, yy)
+        if self.NDim == 3:
+            xx = (x[0] - 0.5*dist, x[0] + 0.5*dist)
+            yy = (x[1] - 0.5*dist, x[1] + 0.5*dist)
+            zz = (x[2] - 0.5*dist, x[2] + 0.5*dist)
+            self.ScatterPlotLabeledColoredPacked3(xx, yy, zz)
+
         
 
     def Distributions(self,inode):
@@ -3598,7 +4090,7 @@ if __name__ == '__main__':
         Prob = opts.prob
         NRuns = opts.expansionruns
 
-        if True:
+        if opts.dimension == 2:
 
             ggrid = cubenodeset_t(opts.dimension)
             
@@ -3610,7 +4102,7 @@ if __name__ == '__main__':
 
             i = 0
             print("start", ggrid.NNode); i += 1
-            
+            import pdb; pdb.set_trace()
             (coordnode, nodecoord) = ggrid.FindCubeCoord(32, [33,64])
             ggrid.DivideCube(coordnode, nodecoord, nslices)
             print(i, ggrid.NNode); i += 1
@@ -3688,6 +4180,10 @@ if __name__ == '__main__':
             coordnode, nodecoord, mag = ggrid.PickADivisibleCube(startnode00)
             if not(coordnode is None):
                 ggrid.DivideCube(coordnode, nodecoord, nslices)
+        elif opts.dimension == 3:
+            import pdb; pdb.set_trace()
+            ggrid = cubenodeset_t(opts.dimension)
+            ggrid.CreateNCube()
 
     #import pdb; pdb.set_trace()
     BigHist = copy(ggrid.Hist)
