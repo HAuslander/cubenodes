@@ -2358,6 +2358,13 @@ class cubenodeset_t():
         return True
 
 
+    def AllHave2totheDRegions(self, somelist):
+        for inode in somelist:
+            if len(self.NodeVec[inode].Neighbors) != 2 ** self.NDim:
+                return False
+        return True
+
+
         
     def Chrysanthemum(self, Id):
         nbrs = copy(self.NodeVec[Id].Neighbors)
@@ -2743,7 +2750,7 @@ class cubenodeset_t():
             # first, check for interior nodes by trying to find opposite node without any farneighbor extensions
             coordnode, nodecoord = self.FindInterior(Id, icombo)
             if not(coordnode is None):
-                if self.AllHave2DNeighbors(nodecoord.keys()):
+                if self.AllHave2DNeighbors(nodecoord.keys()) and self.AllHave2totheDRegions():
                     alreadydone[sortcombo] = True
                     continue # an acceptable set of coords
                 else:
