@@ -1981,6 +1981,7 @@ class cubenodeset_t():
      
         return True
 
+    """
     def bNonCollinearOLD(self, Id, nbrids):
         blenA = len(self.NodeVec[Id].NeighborIds()) == 2 * self.NDim
         blen0 = len(self.NodeVec[nbrids[0]].NeighborIds()) == 2 * self.NDim
@@ -2040,6 +2041,51 @@ class cubenodeset_t():
 
     def RingIncrement(self, ringmag):
         return (ringmag + 1) % self.MagnificationRingLen
+
+    """
+
+
+    def bCubeIntegrityCheck(self, coordnode):
+        """
+        Simple check to make sure all the corners of cube are separated by appropriate distances
+        """
+
+        origincoord = tuple([0] * self.NDim)
+        originnode = coordnode[origincoord]
+        originvec = np.array(self.NodeVec[originnode].Coords)
+
+        basedist = 0
+        epsilon = 1.0e-6
+        onemepsilon = 1.0 - epsilon
+        onepepsilon = 1.0 + epsilon
+        for i in range(self.NDim):
+            thiscoord = list(origincoord)
+            thiscoord[i] = 1
+            thisvec = self.NodeVec[coordnode[tuple(thiscoord)]].Coords
+            thisdist = self.l2(np.array(thisvec), originvec)
+
+            if basedist == 0:
+                basedist = copy(thisdist)
+            else:
+                if basedist < onemepsilon * thisdist or basedist > onepepsilon:
+                    return False     
+
+            
+        
+        for coord,node in coordnode.items():
+            sumones = np.sum(coord)
+            if sumones <= 1:
+                continue # already did this
+            thisvec = self.NodeVec[coordnode[coord]].Coords
+            thisdist = self.l2(thisvec, originvec)
+            target = np.sqrt(sumones) * basedist
+            if thisdist < onemepsilon * target or thisdist > onepepsilon * target:
+                return False
+        
+        return True
+
+
+        origincoord = coordnode(tuple([0] * self.NDim))
 
     def bAbuttingPeriphery(self, Id, nbrset):
         """
@@ -2388,6 +2434,16 @@ class cubenodeset_t():
         
         return coordnode, nodecoord
 
+    
+    def DecomposeBinaryIntoSmallerDimensionalBinaries(self, binvec):
+        myretval = []
+        for iic, ic in enumerate(binvec):
+            if ic == 1:
+                thisvec = list(binvec)
+                if thisvec[iic] == 1:
+                    thisvec[iic] = 0
+                    myretval.append(tuple(thisvec))
+        return myretval
 
    
     def FindCubeCoord(self, Id, nbrsubset):
@@ -2402,6 +2458,16 @@ class cubenodeset_t():
 
         
         """
+
+        print("""In 3d, must modify this routine as follow: 1) 
+        add a directory allowing one to specify the paths connecting edges;
+         2) for any such path that has more than 2 neighbors, the first and
+         last steps must have the resoectuve first/last node be one of the prev neighbors for that node;
+         i.e. the neighbor that connects the start or end node in the direction, so to speak,
+         of some other corner has to have the start node as one the prev neighbors, or else,
+         if we're talking about the end node, then that end node must have itself as one
+         of the PrevNeighbors""")
+
         def nbrsfrombin(nbrsubset, binvec, coordnode, nodecoord):
             """
             Used to get the neighbor nodes of the corner node
@@ -2504,8 +2570,16 @@ class cubenodeset_t():
                 continue
             if sum1 >= 2:
 
+                thesecoords = self.DecomposeBinaryIntoSmallerDimensionalBinaries(binvec)
+                thesenodes = []
+                for jcoord in thesecoords:
+                    thesenodes.append(coordnode[jcoord])
 
-                thesenodes = tuple(self.nbrsfrombin(nbrsubset, binvec, coordnode, nodecoord)) # note there are sum1 components of thesenodes
+                #thesenodes = tuple(self.nbrsfrombin(nbrsubset, binvec, coordnode, nodecoord)) # note there are sum1 components of thesenodes
+
+                #if thesenodes == (448,1,8):
+                #    import pdb; pdb.set_trace()
+
 
                 nbrs = []
 
@@ -2585,7 +2659,7 @@ class cubenodeset_t():
         bCheck = False
         if bCheck:
             for coord,node in coordnode.items():
-                if len(self.NodeVec[node].Neighbors) != 2 * self.NDim:
+                if len(self.NodeVec[node].Neighbors) != 2 * self.NDim  or self.NodeVec[node].NRegions != 2 ** self.NDim:
                     print("wrong1 -- failed coordinate creation")
                     #import pdb; pdb.set_trace()
             for coord,node in coordnode.items():
@@ -2982,9 +3056,18 @@ class cubenodeset_t():
                         #    print(inode, self.NodeVec[inode].Coords) 
 
                     #print("NOW DIVIDE")
-                    #import pdb; pdb.set_trace()   
+                    #import pdb; pdb.set_trace()  
 
-                    self.DivideCube(inode, coords, noodes, nslices)
+
+
+                    if not(self.bCubeIntegrityCheck(coords)):
+                        print("BAD CUBE BEING DIVIDED -- what's going on?")
+                        import pdb; pdb.set_trace()
+                        self.bCubeIntegrityCheck(coords)
+
+
+
+                    self.DivideCube(coords, noodes, nslices)
                     if self.NNode > MaxNodes:
                         print("reached maxnode upper limit", self.NNode)
                         break
@@ -3098,7 +3181,7 @@ class cubenodeset_t():
                 else:
                     #import pdb; pdb.set_trace()
                     print("div ", inode, CoordNode, NodeCoord, len(self.NodeVec))
-                    self.DivideCube(inode, CoordNode, NodeCoord, nslices)
+                    self.DivideCube(CoordNode, NodeCoord, nslices)
 
                     self.ClearParity()
                     self.MakeParity(0)
@@ -3196,7 +3279,7 @@ class cubenodeset_t():
                     #if inode.Id == 6:
                     #    import pdb; pdb.set_trace()
                     #print("div ", inode, CoordNode, NodeCoord, len(self.NodeVec))
-                    self.DivideCube(inode, CoordNode, NodeCoord, nslices)
+                    self.DivideCube(CoordNode, NodeCoord, nslices)
                     #import pdb; pdb.set_trace()
 
 
@@ -4050,7 +4133,7 @@ if __name__ == '__main__':
 
         (coordnode, nodecoord) = ggrid.FindCubeCoord(0, targetax)
         
-        ggrid.DivideCube(startnode00, coordnode, nodecoord, nslices)
+        ggrid.DivideCube(coordnode, nodecoord, nslices)
 
 
         allaxes00 = ggrid.ReturnAllAxes(startnode00)
@@ -4062,7 +4145,7 @@ if __name__ == '__main__':
         
         coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
         if not(coords is None):
-            ggrid.DivideCube(startnode01, coords, noodes, nslices)
+            ggrid.DivideCube(coords, noodes, nslices)
 
 
 
@@ -4181,7 +4264,7 @@ if __name__ == '__main__':
             if not(coordnode is None):
                 ggrid.DivideCube(coordnode, nodecoord, nslices)
         elif opts.dimension == 3:
-            import pdb; pdb.set_trace()
+            #import pdb; pdb.set_trace()
             ggrid = cubenodeset_t(opts.dimension)
             ggrid.CreateNCube()
 
@@ -4343,7 +4426,7 @@ with open('blah2.pkl', 'rb') as fp:
                     coords,nodes = ggrid.FindCubeCoord(41, [7033,8829])    
                     coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
                     if not(coords is None):
-                        ggrid.DivideCube(startnode01, coords, noodes, nslices)
+                        ggrid.DivideCube(coords, noodes, nslices)
                     import pdb; pdb.set_trace()
 
                     startnode01 = 32 # startnode10 = 32
@@ -4351,7 +4434,7 @@ with open('blah2.pkl', 'rb') as fp:
                     allaxes01 = ggrid.ReturnAllAxes(startnode01)       
                     coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
                     if not(coords is None):
-                        ggrid.DivideCube(startnode01, coords, noodes, nslices)
+                        ggrid.DivideCube(coords, noodes, nslices)
                     import pdb; pdb.set_trace()
                     #import pdb; pdb.set_trace()
 
@@ -4360,7 +4443,7 @@ with open('blah2.pkl', 'rb') as fp:
                     allaxes01 = ggrid.ReturnAllAxes(startnode01)       
                     coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
                     if not(coords is None):
-                        ggrid.DivideCube(startnode01, coords, noodes, nslices)
+                        ggrid.DivideCube(coords, noodes, nslices)
                     import pdb; pdb.set_trace()
 
                     startnode01 = 32 # startnode10 = 32
@@ -4368,7 +4451,7 @@ with open('blah2.pkl', 'rb') as fp:
                     allaxes01 = ggrid.ReturnAllAxes(startnode01)       
                     coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
                     if not(coords is None):
-                        ggrid.DivideCube(startnode01, coords, noodes, nslices)
+                        ggrid.DivideCube(coords, noodes, nslices)
                     import pdb; pdb.set_trace()
 
                     startnode01 = 7 # startnode10 = 32
@@ -4376,7 +4459,7 @@ with open('blah2.pkl', 'rb') as fp:
                     allaxes01 = ggrid.ReturnAllAxes(startnode01)
                     coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
                     if not(coords is None):
-                        ggrid.DivideCube(startnode01, coords, noodes, nslices)
+                        ggrid.DivideCube(coords, noodes, nslices)
                     import pdb; pdb.set_trace()
 
 
@@ -4385,7 +4468,7 @@ with open('blah2.pkl', 'rb') as fp:
                     allaxes01 = ggrid.ReturnAllAxes(startnode01)
                     coords, noodes, iax = ggrid.PickADivisibleCube(startnode01, allaxes01)
                     if not(coords is None):
-                        ggrid.DivideCube(startnode01, coords, noodes, nslices)
+                        ggrid.DivideCube(coords, noodes, nslices)
                     #import pdb; pdb.set_trace()
 
 
