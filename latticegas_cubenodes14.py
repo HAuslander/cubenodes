@@ -1069,7 +1069,7 @@ class node_t():
         self.LastDivide = 0 # not needed; it may prove useful in efforts "even out" the divisions so that the resultant lattice does not have large gaps
 
         self.NRegions = 0
-        self.RegionGrowth = [] # hopefully this will not need to be used, at least for 3D
+        #self.RegionGrowth = [] # hopefully this will not need to be used, at least for 3D
 
         # region count gives the number of "colors" converging on a node. At the start of the cube creation, every node has 2**D cubes.
         # In, say, 3-d, When one of those cubes gets subdivided, the "middle" dube edges have 4 neighbors and 5 regions (i.e. the 4 regions that
@@ -1604,9 +1604,9 @@ class cubenodeset_t():
             relevantA = nbr2subset[0]
             relevantB = nbr2subset[1]
 
-            if len(self.NodeVec[relevantA].Neighbors) != 2 * self.NDim:
+            if self.NodeVec[relevantA].NRegions != 2 ** self.NDim:
                 relevantA = self.AcrossADividedEdge(Id, relevantA)[-1]
-            if len(self.NodeVec[relevantB].Neighbors) != 2 * self.NDim:
+            if self.NodeVec[relevantB].NRegions != 2 ** self.NDim:
                 relevantB = self.AcrossADividedEdge(Id, relevantB)[-1]
 
             relnbrsA = []
@@ -2048,20 +2048,25 @@ class cubenodeset_t():
         #print("done with divide")
 
         # finally, update the region count of all the participating nodes
-        for inode in newnodecoord.items():
+        
+        
+        for inode in newnodecoord.keys():
+            if self.NodeVec[inode].NRegions >= 2 ** self.NDim:
+                continue # already reached terminal saturation/RegionCount
             nbrsinnew = 0
             for inbr in self.NodeVec[inode].Neighbors:
                 if inbr in newnodecoord.keys():
                     nbrsinnew += 1
-            thisregionincrement = NodeCountToHypercubeCount(nbrsinnew)
+            
+            thisregionincrement = NodeCountToHypercubeCount(nbrsinnew, self.NDim)
             self.NodeVec[inode].NRegions += thisregionincrement
-            if self.NodeVec[inode].NRegions > 2 ** self.NDem:
-                print("How did this happen,  wince NRegions can be at most 2**D")
+            if self.NodeVec[inode].NRegions > 2 ** self.NDim:
+                print("How did this happen,  since NRegions can be at most 2**D")
                 import pdb; pdb.set_trace()
-            else:
-                self.NodeVec[inode].RegionGrowth.append(thisregionincrement)
-                self.NodeVec[inode].RegionGrowth.sort()
-
+            #else:
+            #    self.NodeVec[inode].RegionGrowth.append(thisregionincrement)
+            #    self.NodeVec[inode].RegionGrowth.sort()
+        
                 
 
 
@@ -2177,7 +2182,7 @@ class cubenodeset_t():
             self.NodeVec[Id].Coords = coord
             self.NodeVec[Id].RatCoords = tuple([RationalNumber(xint) for xint in coord])
             self.NodeVec[Id].NRegions =  2 ** self.NDim 
-            self.NodeVec[Id]..RegionGrowth = [2 ** self.NDim]
+            #self.NodeVec[Id].RegionGrowth = [2 ** self.NDim]
 
     
     
@@ -2195,7 +2200,7 @@ class cubenodeset_t():
         return False
 
 
-
+    # Note: this is actually a misnomer in dimensions higer than 2, where even nodes with 2D neighbors can still be unpacked, so to speak
     def NearestPackedNeighbor(self, Id, nbr):
         if len(self.NodeVec[nbr].Neighbors) == 2 * self.NDim:
             return nbr
@@ -2310,7 +2315,7 @@ class cubenodeset_t():
         #    return [ iPath ]
 
         TgtRegionCount = self.NodeVec[iPath[-1]].NRegions
-        TgtRegionGrowth = tuple(self.NodeVec[iPath[-1]].RegionGrowth)
+        #TgtRegionGrowth = tuple(self.NodeVec[iPath[-1]].RegionGrowth)
         if TgtRegionCount == 2 ** self.NDim:
             return [ iPath ]        
 
@@ -2333,17 +2338,18 @@ class cubenodeset_t():
                     #kNbrLen = len(self.NodeVec[knbr].Neighbors)
                     #if kNbrLen == 2 * self.NDim:
                     kRegCnt = self.NodeVec[knbr].NRegions
-                    kRegGrowth = tuple(self.NodeVec[knbr].RegionGrowth)
+                    #kRegGrowth = tuple(self.NodeVec[knbr].RegionGrowth)
                     if kRegCnt == 2 ** self.NDim:
                         if len(jpath) + 1 == PathLen:
                             cappedpath = jpath + [knbr]
                             if True: #self.NoFaces(cappedpath): # apparently, do not need to check for collinearity; whatever it excludes falls out from the rest of the requirements
                                 finishedpaths.append(cappedpath)
                                
-                    elif kNbrLen == TgtNbrCount and kRegGrowth == TgtRegionGrowth:
-                        # in this case you've switched from one kind of hypersuface
-                        # to another of differing dimension
+                        # in this case we have reached the end of the path
                         addedpaths.append( jpath + [knbr] )
+                    elif kRegCnt == TgtRegionCount:
+                        addedpaths.append( jpath + [knbr] )
+                        # in this case, we continue the path along the same edge (as specified earlier in TgtRegionCount)
 
 
             if len(addedpaths) == 0:
@@ -2371,7 +2377,7 @@ class cubenodeset_t():
         lennbrs = len(nbrs)
         if self.NDim == 1:
             return [ [Id, nbrs[0]], [Id, nbrs[1]] ]
-        if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
+        if self.NodeVec[Id].NRegions != 2 ** self.NDim:
             return [], []
 
         pathdump = []
@@ -2384,7 +2390,7 @@ class cubenodeset_t():
             for ipath in thesepaths:
                 pathdump.append(ipath)
                 pathdumpgeneration.append(0)
-                alreadydone.append( ((Id,inbr), 0) )
+                alreadydone.append( (tuple(ipath), 0) )
 
         for idim in range(1, self.NDim):
             iidump = -1
@@ -2395,13 +2401,19 @@ class cubenodeset_t():
 
                 jnbrs = self.NodeVec[idump[-1]].Neighbors
                 for jnbr in jnbrs:
-                    thisarg = ((idump[-1], jnbr), idim)
+                    #thisarg = (tuple(idump), idim)
+                    #if idim == 1 and idump[-1] == 72 and jnbr == 522:
+                    #    print("this gets we")
+                    #    import pdb; pdb.set_trace()
                     thesepaths = self.BruteNeighborSearch([idump[-1], jnbr], PathLen)                       
                     for jp in thesepaths:
+                        thisarg = (tuple(jp), idim)
                         intersected = list(set(idump).intersection(set(jp[1:])))
                         if len(intersected) == 0 and not( thisarg in alreadydone  ) :
                             pathdump.append(jp)
                             pathdumpgeneration.append(idim)
+                            alreadydone.append( thisarg )
+
 
 
 
@@ -2414,7 +2426,7 @@ class cubenodeset_t():
             iendpts = [ipath[0], ipath[-1]]
             iendpts.sort()
             iendpts = tuple(iendpts)
-            biDelete = False
+            bDelete = False
             for jjpath in range(iipath + 1, len(pathdump)):
                 jpath = pathdump[jjpath]
                 jendpts = [jpath[0], jpath[-1]]
@@ -2429,9 +2441,9 @@ class cubenodeset_t():
                         dellist.append(jjpath)
                     if len(ipath) > 2:
                         dellist.append(iipath)
-                        biDelete = True
+                        bDelete = True
                         break
-            if biDelete:
+            if bDelete:
                 continue
         dellist = list(set(dellist))
         dellist.sort()
@@ -2441,14 +2453,13 @@ class cubenodeset_t():
             del pathdump[idel]
             del pathdumpgeneration[idel]
 
-
         
         return pathdump, pathdumpgeneration
 
 
 
 
-    def ReturnAllWellFormedCubes(self, Id, PathLen = None):
+    def ReturnAllWellFormedCubes(self, Id, PathLen = None, ForceAxis=None):
         """
         All corners of the cube must be  connected by paths of length NSlices+2
         or else 2 (in the latter case, the respective nodes are nearest neighbors);
@@ -2465,7 +2476,16 @@ class cubenodeset_t():
         possible if ALL the paths connecting corners of the cube are of len NSlices+2
         """
 
-
+        def IsAxisContained(iaxx, ForceAxis):
+            alreadydone = []
+            for ifax in ForceAxis:
+                for iiax, iax in enumerate(iaxx):
+                    if ifax in iax:
+                        alreadydone.append(iiax)
+            return (len(set(alreadydone)) == len(alreadydone)) and (len(alreadydone) == len(ForceAxis))
+                
+            
+                
 
 
         if PathLen is None:
@@ -2476,7 +2496,9 @@ class cubenodeset_t():
         lennbrs = len(nbrs)
         if self.NDim == 1:
             return [ [Id, nbrs[0]], [Id, nbrs[1]] ]
-        if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
+        #if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
+        #    return []
+        if self.NodeVec[Id].NRegions != 2 ** self.NDim:
             return []
 
         myretval = []
@@ -2493,18 +2515,18 @@ class cubenodeset_t():
 
         pathdump = []
         pathdumpgeneration = []
-        #import pdb; pdb.set_trace()
+        #
         alreadydone = []
         for inbr in nbrs:
             thesepaths = self.BruteNeighborSearch([Id, inbr], PathLen)
             for ipath in thesepaths:
                 pathdump.append(ipath)
                 pathdumpgeneration.append(0)
-                alreadydone.append( ((Id,inbr), 0) )
+                alreadydone.append( (tuple(ipath), 0) )
 
         
 
-
+        
         alreadydone = []
         for idim in range(1, self.NDim):
             iidump = -1
@@ -2515,19 +2537,26 @@ class cubenodeset_t():
 
                 jnbrs = self.NodeVec[idump[-1]].Neighbors
                 for jnbr in jnbrs:
-                    thisarg = ((idump[-1], jnbr), idim)
+                    #thisarg = (tuple(idump), idim)
+                    #if idim == 1 and idump[-1] == 72 and jnbr == 522:
+                    #    print("this gets we")
+                    #    import pdb; pdb.set_trace()
                     thesepaths = self.BruteNeighborSearch([idump[-1], jnbr], PathLen)                       
                     for jp in thesepaths:
+                        thisarg = (tuple(jp), idim)
                         intersected = list(set(idump).intersection(set(jp[1:])))
                         if len(intersected) == 0 and not( thisarg in alreadydone  ) :
                             pathdump.append(jp)
                             pathdumpgeneration.append(idim)
                             alreadydone.append( thisarg )
 
+
                         #else:
                             #alreadydone[(iidump, len(pathdump)-1)] = False
 
-        
+        #if self.NNode >= 612:
+        #    print("look for 72")
+        #    import pdb; pdb.set_trace()
 
         # now, delete any "long" paths that have identical endpoints 
         # (any "short" paths -- i.e. nearest neighbor paths -- will of necessity be unique)
@@ -2565,6 +2594,8 @@ class cubenodeset_t():
             del pathdump[idel]
             del pathdumpgeneration[idel]
 
+          
+
 
         alreadydone = {}       
 
@@ -2573,9 +2604,6 @@ class cubenodeset_t():
         pathdumpgeneration = np.array(pathdumpgeneration).astype("int")
         gen0len = np.sum(pathdumpgeneration == 0) # these can be the D edges connecting to the corner node
         
-
-
-        import pdb; pdb.set_trace()
         allaxcombos = AllUniqueCombosNoReplacement(gen0len, self.NDim)
         
         """
@@ -2593,12 +2621,15 @@ class cubenodeset_t():
         """
         TestForInteriorPoints = {}
         for icombo in allaxcombos:
-            iax = [pathdump[iicombo] for iicombo in icombo]
 
-            
+            iax = [pathdump[iicombo] for iicombo in icombo]
 
             # check that all their nodes (except of course the starting) are distinct
             iaxx = [pathdump[iicombo][1:] for iicombo in icombo]
+            if not(ForceAxis is None):
+                if not(IsAxisContained(iaxx, ForceAxis)):
+                    continue
+
             intersected = list(set(iaxx[0]).intersection(*iaxx[1:]))
             if len(intersected) != 0:
                 continue
@@ -2633,7 +2664,8 @@ class cubenodeset_t():
             return [ nbrs ]
 
         # if corner of node does not have 2D neighbors, we cannot divide the cube
-        if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
+        #if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
+        if self.NodeVec[Id].NRegions != 2 ** self.NDim:
             return []
         # Likewise, check that the axes either have 2D neighbors or that their far neighbors (relative to Id)
         # have 2D neighbors; if neither is true, we can't form a good cube with it as an edge, 
@@ -2671,7 +2703,8 @@ class cubenodeset_t():
             return [ nbrs ]
 
         # if corner of node does not have 2D neighbors, we cannot divide the cube
-        if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
+        #if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
+        if self.NodeVec[Id].NRegions != 2 ** self.NDim:
             return []
         # Likewise, check that the axes either have 2D neighbors or that their far neighbors (relative to Id)
         # have 2D neighbors; if neither is true, we can't form a good cube with it as an edge, 
@@ -2681,9 +2714,11 @@ class cubenodeset_t():
        
         dellist = []
         for inbr in nbrs:
-            if len(self.NodeVec[inbr].Neighbors) != 2 * self.NDim:
+            #if len(self.NodeVec[inbr].Neighbors) != 2 * self.NDim:
+            if self.NodeVec[inbr].NRegions != 2 ** self.NDim:
                 inbr_farnbr_strip = self.AcrossADividedEdge(Id, inbr)
-                if len(inbr_farnbr_strip) != 2 * self.NDim:
+                import pdb; pdb.set_trace()
+                if len(inbr_farnbr_strip) != 2 + self.NSlices: #  2 * self.NDim:
                     dellist.append(inbr)
                     continue
                 if self.AcrossADividedEdge(inbr_farnbr_strip[-1], inbr_farnbr_strip[-2])[-1] != Id:
@@ -2807,7 +2842,7 @@ class cubenodeset_t():
 
         
 
-
+    # not used; incomplete
     def GetPreviousNeighbors(self, Id, nbrId):
         """
         Notes: You only ever need to know PrevNeighbors of a node with less than 2D neighbors
@@ -2912,7 +2947,7 @@ class cubenodeset_t():
             return myret
 
 
-    # this is just a customized copy of FindCubeCoord()
+    # this is just a customized copy of FindCubeCoord() -- SEEMS TO BE UNUSUED
     def FindOppositeNode(self, Id, nbrsubset, bAllowFarNeighbors=True, subdim=None):
         """
         This is only ever used (so far) with bAllowFarNeighbors set to False, but it may eventually have other uses.
@@ -2921,7 +2956,7 @@ class cubenodeset_t():
         if subdim is None:
             subdim = self.NDim
 
-        if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
+        if self.NodeVec[Id].NRegions != 2 ** self.NDim:
             return None, None         
     
         Idcoord = tuple([0] * self.NDim)
@@ -2991,7 +3026,7 @@ class cubenodeset_t():
                 if len(intersected) != 1:
                     return None, None # rerun with minmag
 
-                if len(self.NodeVec[thisnode].Neighbors) != 2 * self.NDim:
+                if self.NodeVec[thisnode].NRegions != 2 ** self.NDim:
                     return  None, None # rerun with minmag
                 thisnode = intersected[0]
                 coordnode[binvec] = thisnode
@@ -3017,7 +3052,8 @@ class cubenodeset_t():
             thisnode = intersected[0]
             coordnode[binvec] = thisnode
             nodecoord[thisnode] = binvec
-            if (len(thisnode).Neighbors()) != 2 * self.NDim:
+
+            if self.NodeVec[thisnode].NRegions != 2 ** self.NDim:
                 return None, None
 
 
@@ -3166,7 +3202,7 @@ class cubenodeset_t():
         #if self.NNode == 1036:
         #    import pdb; pdb.set_trace()
 
-        if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
+        if self.NodeVec[Id].NRegions != 2 ** self.NDim:
             #print("ERROR --  the corners of the cube do not have 2*D neighbors?")
             return None, None         
     
@@ -3188,7 +3224,7 @@ class cubenodeset_t():
             relevantnode = inbrId
             if inbrId in self.NodeVec[Id].Neighbors:
                 #fails when Id is 885 and icombo is [2021, 2025]
-                if len(self.NodeVec[inbrId].Neighbors) != 2 * self.NDim: # and not(bOnlyCheckForInterior):
+                if self.NodeVec[inbrId].NRegions != 2 ** self.NDim: # and not(bOnlyCheckForInterior):
                     #relevantnode = self.FartherNeighbor(Id, inbrId)[0]
                     thisrow, bIsOK  = self.FarNeighbor(Id, inbrId)
                     if not(bIsOK):
@@ -3196,7 +3232,7 @@ class cubenodeset_t():
                     relevantnode = thisrow[-1]   
                     bUsingFarNeighbor = True
             try:
-                if len(self.NodeVec[relevantnode].Neighbors) != 2 * self.NDim: # and not(bOnlyCheckForInterior):
+                if self.NodeVec[relevantnode].NRegions != 2 ** self.NDim: # and not(bOnlyCheckForInterior):
                     return None, None
             except:
                 import pdb; pdb.set_trace()
@@ -3207,7 +3243,7 @@ class cubenodeset_t():
             thisvec = tuple(thisvec)
             coordnode[thisvec] = relevantnode
             nodecoord[relevantnode] = thisvec
-            if len(self.NodeVec[relevantnode].Neighbors) != 2 * self.NDim:
+            if self.NodeVec[relevantnode].NRegions != 2 ** self.NDim:
                 #print("ERROR --  the corners of the cube do not have 2*D neighbors?")
                 return None, None 
 
@@ -3235,8 +3271,8 @@ class cubenodeset_t():
             if sum1 >= 2:
 
 
-                if binvec == (1,1,1):
-                    import pdb; pdb.set_trace()
+                #if binvec == (1,1,1):
+                #    import pdb; pdb.set_trace()
                 thesenodes = tuple(self.nbrsfrombin(nbrsubset, binvec, coordnode, nodecoord)) # note there are sum1 components of thesenodes
 
                 nbrs = []
@@ -3277,12 +3313,12 @@ class cubenodeset_t():
                 if len(intersected) != 1:
                     return None, None # rerun with minmag
 
-                if len(self.NodeVec[thisnode].Neighbors) != 2 * self.NDim:
+                if self.NodeVec[thisnode].NRegions != 2 ** self.NDim:
                     return  None, None # rerun with minmag
                 thisnode = intersected[0]
                 coordnode[binvec] = thisnode
                 nodecoord[thisnode] = binvec
-                if len(self.NodeVec[thisnode].Neighbors) != 2 * self.NDim:
+                if self.NodeVec[thisnode].NRegions != 2 ** self.NDim:
                     #print("ERROR --  the corners of the cube do not have 2*D neighbors?")
                     return None, None 
 
@@ -3296,7 +3332,7 @@ class cubenodeset_t():
         bCheck = False
         if bCheck:
             for coord,node in coordnode.items():
-                if len(self.NodeVec[node].Neighbors) != 2 * self.NDim:
+                if self.NodeVec[node].NRegions != 2 ** self.NDim:
                     print("wrong1 -- failed coordinate creation")
                     #import pdb; pdb.set_trace()
             for coord,node in coordnode.items():
@@ -3997,7 +4033,7 @@ class cubenodeset_t():
 
 
 
-        if len(self.NodeVec[Id].Neighbors) != 2 * self.NDim:
+        if self.NodeVec[Id].NRegions != 2 ** self.NDim:
             #print("ERROR --  the corners of the cube do not have 2*D neighbors?")
             return None, None, None         
     
@@ -4045,7 +4081,6 @@ class cubenodeset_t():
             # one element for coords whose sum1==1, but higher ones may have more elements than one so we will mk it a list
             # in this case, too
 
-
         for sum1, binvec in sortbyones[1:]: # we already installed the first one
             if sum1 == 0:
                 continue
@@ -4057,11 +4092,9 @@ class cubenodeset_t():
                 tobeintersected = {}
                 tobeintersectedx = {}
 
-                if binvec == (1,1,0):
-                    print("here's 110")
-                    import pdb; pdb.set_trace()
-
                 thesecoords = self.DecomposeBinaryIntoSmallerDimensionalBinaries(binvec)
+
+
 
                 bItIsEmpty  = False
                 for itup in thesecoords:
@@ -4078,8 +4111,12 @@ class cubenodeset_t():
                             tobeintersectedx[itup] = ipextrax
 
 
+
+
+
                 if bItIsEmpty:
                     continue
+
 
                 if np.min([ len(i)  for i in tobeintersectedx.values()]) == 0:
                     return None, None, None
@@ -4714,7 +4751,7 @@ class cubenodeset_t():
         import pdb; pdb.set_trace()
         coordnode_nodecoord_coordpath_list = self.ReturnAllWellFormedCubes(inode)
 
-        if len(self.NodeVec[inode].Neighbors) != 2 * self.NDim:
+        if self.NodeVec[inode].NRegions != 2 ** self.NDim:
             return
 
 
@@ -4752,7 +4789,11 @@ class cubenodeset_t():
                 if igen == self.NDim-1:
                     top = len(pathdump)
                 else:
-                    top = pathdumpgeneration.index(igen + 1)
+                    if (igen + 1) in pathdumpgeneration:
+                        top = pathdumpgeneration.index(igen + 1)
+                    else:
+                        print("pathdumpgeneration is weird")
+                        import pdb; pdb.set_trace()
                 
                 gen_coordnode_nodecoord_coordpath_list = [] # we only put mixed-fractality scenarios here
                 for ipath in pathdump[bot:top]:
@@ -4913,7 +4954,7 @@ class cubenodeset_t():
                     import pdb; pdb.set_trace()
                 coordnode_nodecoord_coordpath_list = self.ReturnAllWellFormedCubes(inode)
 
-                if len(self.NodeVec[inode].Neighbors) != 2 * self.NDim:
+                if self.NodeVec[inode].NRegions != 2 ** self.NDim:
                     continue
 
 
@@ -4951,7 +4992,12 @@ class cubenodeset_t():
                         if igen == self.NDim-1:
                             top = len(pathdump)
                         else:
-                            top = pathdumpgeneration.index(igen + 1)
+                            if (igen + 1) in pathdumpgeneration:
+                                top = pathdumpgeneration.index(igen + 1)
+                            else:
+                                print("Weird pathdumpgeneration")
+                                import pdb; pdb.set_trace()
+                                pathdump, pathdumpgeneration = self.Chrysanthemum(inode)
                         
                         gen_coordnode_nodecoord_coordpath_list = [] # we only put mixed-fractality scenarios here
                         for ipath in pathdump[bot:top]:
@@ -5349,18 +5395,19 @@ class cubenodeset_t():
     
     def NodeFromCoords(self, coordtup, err=1.0e-5):
         x0 = np.array((coordtup))
-        for i, ix in enumerage(x0):
+        for i, ix in enumerate(x0):
             if ix < 0:
-                x[ix] += self.TorLen
+                x0[i] += self.TorLen
 
 
         myretval = []
         for inode in self.NodeVec:
-            idist = np.linalg.norm(x0, np.array(inode.Coords))
+            idist = np.linalg.norm(x0 - np.array(inode.Coords))
             if idist <= err:
                 myretval.append(inode.Id)
         return myretval
     
+    # return the axis nodes obtained by moving in the POSITIVE direction away from Id
     def GetAxisNodes(self, Id):
         def DifferWhere(x,y):
             myretval = []
@@ -5382,6 +5429,8 @@ class cubenodeset_t():
                 if nominaldist > 0:
                     myretval[whichax[0]] = inbr
         return myretval
+
+
 
 
 
@@ -5683,7 +5732,7 @@ class cubenodeset_t():
         labels6 = []
         iinput = 0
         for ii,inode in enumerate(self.NodeVec):
-            if len(inode.Neighbors) != 2 * self.NDim:
+            if inode.NRegions != 2 ** self.NDim:
                 continue
 
             thisx, thisy, thisz = inode.Coords
@@ -6100,7 +6149,7 @@ def AllUniqueCombosNoReplacement(N, D):
     return myret
 
 
-def NodeCountToHypercubeCount(HowManyNewNeighbors):
+def NodeCountToHypercubeCount(HowManyNewNeighbors, NDim):
     """
     For any node in a newly divided grid, the number of neighbors THAT ARE PART OF THAT NEW GRID
     uniquely specifies the number of cubes (which can range, in powers of 2, from 1 to D**2) that new
@@ -6112,13 +6161,22 @@ def NodeCountToHypercubeCount(HowManyNewNeighbors):
     occupied regions will specify the kind of edge the node is on. (Note that nodes that are completely interior to
     the newly created cube will have 2**D separate hypercubes from the beginning, whereas those on an edge, or face -- or some
     higher hypercube -- will have successively larger numbers of hypercubes at the start)
+
+    Note that even if you use two numbers -- i.e. NRegions and NNeighbors -- you will not be able to distinguish all edge configurations.
+    For examples consider 3 cubes arranged like an L, compared with a single cube atop a plane. Buth will comprise six out of 8 available
+    regions (in 3D) and both will have maxed out NNeighbor numbers of 6. In this case, the region growth will distinguish the two, but
+    there can be two different cube-plus-plane scenarios (for which the remainder region is situated in some other quadraant) for which
+    even the region growth number won't work. Hopefully, such scenarios will be disqualified by the fact that we cannot have multiple
+    paths with same begin/end nodes. Also, even though the available tests can't distinguish the types of edges they are, the NRegions count
+    is by itself sufficient to show that each of those scenarios is a kind of edge (which is more than can be said of NNeighbor), 
+    and that may be good enough.
     """
 
-    return (HowManyNewNeighbors -self.NDim) ** 2
+    return 2 ** (HowManyNewNeighbors - NDim)
 
-def HypercubeCountToNodeCount(HowManyHyperCubes):
+def HypercubeCountToNodeCount(HowManyHyperCubes, NDim):
     """ Inverse of the previous function """
-    return self.NDim + int(np.log2(HowManyHyperCubes))
+    return NDim + int(np.log2(HowManyHyperCubes))
 
 def MoreStuff(ggrid, i, nneighbors, nsteps=60):
     igroup = [i]
@@ -6242,17 +6300,71 @@ if __name__ == '__main__':
         import pdb; pdb.set_trace()
         """
 
-        
-        list_of_coordnode_nodecoord_tuples_0 = ggrid.ReturnAllWellFormedCubes(0)
-        (coordnode, nodecoord, coord_path) = list_of_coordnode_nodecoord_tuples_0[1]
-        ggrid.BruteDivideCube(coordnode, nodecoord, coord_path)
-        #import pdb; pdb.set_trace()
-        #ggrid.ScatterPlotLabeled3((-0.1,3.1),(-0.1,3.1),(-0.1,3.1))
+
+
+
+        """
+        # after cubenode is created, divide the cubes at the following nodes (always choose axes in the pos. direction):
+
+        100, 110, 011 (you can actually omit the first in that list) and then, try to divide the cube at 111
+
+        node_100 = NodeFromCoords((1,0,0))
+        node_110 = NodeFromCoords((1,1,0))
+        node_011 = NodeFromCoords((0,1,1))
+
+        axisnodes_100 = GetAxisNodes(node_100)
+        axisnodes_110 = GetAxisNodes(node_110)
+        axisnodes_011 = GetAxisNodes(node_011)
+
+            
+        cubes_100 = self.ReturnAllWellFormedCubes(node_100)
+        cubes_110 = self.ReturnAllWellFormedCubes(node_110)
+        cubes_011 = self.ReturnAllWellFormedCubes(node_011)
+        """
+        bCreateProblemScenario = False
+        if bCreateProblemScenario:
+            
+            node_100 = ggrid.NodeFromCoords((1,0,0))[0]
+            node_110 = ggrid.NodeFromCoords((1,1,0))[0]
+            node_010 = ggrid.NodeFromCoords((0,1,0))[0]
+
+            axisnodes_100 = ggrid.GetAxisNodes(node_100)
+            axisnodes_110 = ggrid.GetAxisNodes(node_110)
+            axisnodes_010 = ggrid.GetAxisNodes(node_010)
+ 
+            #import pdb; pdb.set_trace()
+            cubes_100 = ggrid.ReturnAllWellFormedCubes(node_100, None, axisnodes_100)
+            coordnode, nodecoord, coord_path = cubes_100[0]
+            ggrid.BruteDivideCube(coordnode, nodecoord, coord_path)
+
+            # this next one is not necessary
+            cubes_110 = ggrid.ReturnAllWellFormedCubes(node_110, None, axisnodes_110)
+            coordnode, nodecoord, coord_path = cubes_110[0]
+            ggrid.BruteDivideCube(coordnode, nodecoord, coord_path)
+
+            
+            cubes_010 = ggrid.ReturnAllWellFormedCubes(node_010, None, axisnodes_010)
+            coordnode, nodecoord, coord_path = cubes_010[0]
+            ggrid.BruteDivideCube(coordnode, nodecoord, coord_path)
+
+            import pdb; pdb.set_trace()
+            node_000 = ggrid.NodeFromCoords((0,0,0))[0]
+            axisnodes_000 = ggrid.GetAxisNodes(node_000)
+            cubes_000 = ggrid.ReturnAllWellFormedCubes(node_000, None, axisnodes_000)
+            coordnode, nodecoord, coord_path = cubes_000[0]
+            ggrid.BruteDivideCube(coordnode, nodecoord, coord_path)
+
+        if False:        
+            list_of_coordnode_nodecoord_tuples_0 = ggrid.ReturnAllWellFormedCubes(0)
+            (coordnode, nodecoord, coord_path) = list_of_coordnode_nodecoord_tuples_0[1]
+            ggrid.BruteDivideCube(coordnode, nodecoord, coord_path)
+            #import pdb; pdb.set_trace()
+            #ggrid.ScatterPlotLabeled3((-0.1,3.1),(-0.1,3.1),(-0.1,3.1))
 
         
 
 
-        if False:
+
             startnode00 = 0
             allaxes = ggrid.ReturnAllAxes(startnode00)
             
@@ -6571,11 +6683,26 @@ if __name__ == '__main__':
             #import pdb; pdb.set_trace()
             ggrid.CreateNCube()
 
-            # put a deformation in, to give it some mixed-fractality stuff to grow around
-            listpossible = ggrid.ReturnAllWellFormedCubes(33)
-            coordnode,nodecoord,coord_path = listpossible[0]
 
-            ggrid.BruteDivideCube(coordnode,nodecoord,coord_path)
+
+            # put a deformation in, to give it some mixed-fractality stuff to grow around
+            if ggrid.NDim == 2:
+                listpossible = ggrid.ReturnAllWellFormedCubes(33)
+                coordnode,nodecoord,coord_path = listpossible[0]
+
+                ggrid.BruteDivideCube(coordnode,nodecoord,coord_path)
+            else:
+                
+                try:
+                    node_000 = ggrid.NodeFromCoords(tuple([1] * ggrid.NDim))[0]
+                    axisnodes_000 = ggrid.GetAxisNodes(node_000) # this returns the axes in the "positive" direction
+                    cubes_000 = ggrid.ReturnAllWellFormedCubes(node_000, None, axisnodes_000)
+                    coordnode, nodecoord, coord_path = cubes_000[0]
+                    ggrid.BruteDivideCube(coordnode, nodecoord, coord_path)
+                except:
+                    import pdb; pdb.set_trace()
+
+ 
 
             
             myretval = ggrid.ExpandManyRandomly(Prob, NRuns) 
@@ -6965,4 +7092,6 @@ NDIV 2545 29146
 %run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes12.py  -t 100000  --xprob 1.0 --maxnode 80000 --dim 3
 
 %run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes13.py  -t 100000  --xprob 1.0 --maxnode 80000 --dim 3 --post
+
+%run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes14.py  -t 100000  --xprob 1.0 --maxnode 80000 --dim 3
 """
