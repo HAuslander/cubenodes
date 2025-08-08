@@ -1020,6 +1020,8 @@ class cubenodeset_t():
             print("d", key, val)
             if key == 1.0 and val  == 30 and self.NNode > 25000:
                 self.bStop = True
+
+
     
     def FindNeighborDistances(self, InvDist):
         myretval = []
@@ -2371,13 +2373,18 @@ class cubenodeset_t():
             #    print("aaa")
             #    import pdb; pdb.set_trace()
 
-            
+            #if Id == 366 or Id == 358:
+            #    import pdb; pdb.set_trace()
+            if icombo == (0, 6, 8):
+                import pdb; pdb.set_trace()
             coordnode, nodecoord, coord_path = self.BruteFindCubeCoord(Id, iax, icombo, pathdump, pathdumpgeneration, gen0len, TestForInteriorPoints, sortbyones)
+
+            
             if not(coordnode is None):
                 myretval.append((coordnode, nodecoord, coord_path))  
 
             
-            
+        import pdb; pdb.set_trace()
         print("Well-formed cubes wth count", len(myretval), "at", Id, len(myretval), [i[2] for i in myretval])
         return myretval
 
@@ -3141,7 +3148,7 @@ class cubenodeset_t():
         pathdumpgeneration = np.array(pathdumpgeneration).astype("int")
         gen0len = np.sum(pathdumpgeneration == 0) # these can be the D edges connecting to the corner node
 
-
+        coord_path = {}
 
         zerocoord = tuple([0 for i in range(self.NDim)])
 
@@ -3747,7 +3754,7 @@ class cubenodeset_t():
             newcoordnode = {node0:Id}
             newnodecoord = {Id:node0}
             
-            for icoord in coord_path.keys():
+            for icoord in sub_coord_path.keys():
                 if len(sub_coord_path[icoord]) > 1:
                     print("Why was this not pruned?")
                     import pdb; pdb.set_trace()
@@ -4196,8 +4203,10 @@ class cubenodeset_t():
 
         if not(self.bCubeIntegrityCheck(coords)):
             print("BAD CUBE BEING DIVIDED -- what's going on?")
-            import pdb; pdb.set_trace()
+            #import pdb; pdb.set_trace()
             self.bCubeIntegrityCheck(coords)
+            if np.max(noodes.keys()) < self.NDim ** self.TorLen:
+                return
 
 
         
@@ -4428,8 +4437,12 @@ class cubenodeset_t():
 
                 if not(self.bCubeIntegrityCheck(coords)):
                     print("BAD CUBE BEING DIVIDED -- what's going on?")
-                    import pdb; pdb.set_trace()
-                    self.bCubeIntegrityCheck(coords)
+                    #import pdb; pdb.set_trace()
+                    #self.bCubeIntegrityCheck(coords)
+                    #self.bCubeIntegrityCheck(coords)
+                    
+                    if np.max(list(noodes.keys())) < self.NDim ** self.TorLen:
+                        continue
 
 
                 
@@ -5371,10 +5384,21 @@ if __name__ == '__main__':
     opts, args = ReadParams()
 
     if opts.PostAnalysis:
-        #import pdb; pdb.set_trace()
-        f = open('config3d_75984.pkl', 'rb')
+
+        # if you export a grid and then want to analyze it separately, add a --post to the args to
+        # load the file, and then  ou can analyze and plot and debug further.
+
+        f = open('filedump2.pkl', 'rb')
         ggrid = pickle.load(f)
         f.close()
+
+        
+        a = ggrid.FindNeighborDistances(1.0)
+        print(a)
+
+        import pdb; pdb.set_trace()
+        ggrid.ReturnAllWellFormedCubes(358)
+        ggrid.ReturnAllWellFormedCubes(366)
 
        
         inode = 15603
@@ -5383,12 +5407,6 @@ if __name__ == '__main__':
         
 
 
-        if False:
-            f = open('blah3.pkl', 'rb')
-            coords, nodes, coordpath = pickle.load(f)
-            f.close()
-            import pdb; pdb.set_trace()
-            ggrid.PlotCoordPath(coordpath)
     else:
         
 
@@ -6207,4 +6225,8 @@ NDIV 2545 29146
 %run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes13.py  -t 100000  --xprob 1.0 --maxnode 80000 --dim 3 --post
 
 %run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes14.py  -t 100000  --xprob 1.0 --maxnode 80000 --dim 3
+
+
+
+
 """
