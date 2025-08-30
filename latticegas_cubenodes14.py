@@ -974,6 +974,8 @@ class cubenodeset_t():
         # Fick's laws can be applied.
 
         self.NeighborDistanceCount = {}
+        self.NNodeAtTermination = []
+        self.NRunsAtTermination = []
 
         self.bStop = False
 
@@ -1020,8 +1022,6 @@ class cubenodeset_t():
             print("d", key, val)
             if key == 1.0 and val  == 30 and self.NNode > 25000:
                 self.bStop = True
-
-
     
     def FindNeighborDistances(self, InvDist):
         myretval = []
@@ -2373,19 +2373,14 @@ class cubenodeset_t():
             #    print("aaa")
             #    import pdb; pdb.set_trace()
 
-            #if Id == 366 or Id == 358:
-            #    import pdb; pdb.set_trace()
-            if icombo == (0, 6, 8):
-                import pdb; pdb.set_trace()
-            coordnode, nodecoord, coord_path = self.BruteFindCubeCoord(Id, iax, icombo, pathdump, pathdumpgeneration, gen0len, TestForInteriorPoints, sortbyones)
-
             
+            coordnode, nodecoord, coord_path = self.BruteFindCubeCoord(Id, iax, icombo, pathdump, pathdumpgeneration, gen0len, TestForInteriorPoints, sortbyones)
             if not(coordnode is None):
                 myretval.append((coordnode, nodecoord, coord_path))  
 
             
-        import pdb; pdb.set_trace()
-        print("Well-formed cubes wth count", len(myretval), "at", Id, len(myretval), [i[2] for i in myretval])
+            
+        #print("Well-formed cubes wth count", len(myretval), "at", Id, len(myretval), [i[2] for i in myretval])
         return myretval
 
 
@@ -3148,8 +3143,8 @@ class cubenodeset_t():
         pathdumpgeneration = np.array(pathdumpgeneration).astype("int")
         gen0len = np.sum(pathdumpgeneration == 0) # these can be the D edges connecting to the corner node
 
-        coord_path = {}
 
+        coord_path = {}
         zerocoord = tuple([0 for i in range(self.NDim)])
 
         for iic in range(self.NDim):        
@@ -4203,10 +4198,8 @@ class cubenodeset_t():
 
         if not(self.bCubeIntegrityCheck(coords)):
             print("BAD CUBE BEING DIVIDED -- what's going on?")
-            #import pdb; pdb.set_trace()
+            import pdb; pdb.set_trace()
             self.bCubeIntegrityCheck(coords)
-            if np.max(noodes.keys()) < self.NDim ** self.TorLen:
-                return
 
 
         
@@ -4279,7 +4272,7 @@ class cubenodeset_t():
                 self.DivideCube(CoordNode, NodeCoord)
 
 
-    # deprecated -- no longer used
+
     def ExpandManyRandomly(self, Prob, NRuns):
         #print("dont forget to randomize nslices")
 
@@ -4302,7 +4295,10 @@ class cubenodeset_t():
         ii = 0
         ndivisions = 0
         bDone = False
+
         for i in range(NRuns):
+
+            print("Run", i, "with this many nodes:", self.NNode)
             if bDone:
                 break
 
@@ -4360,7 +4356,7 @@ class cubenodeset_t():
                         import pdb; pdb.set_trace()
                     else:
                         #print("Found alternate node with allowable divisions.")
-                        print("Found alternative choice -- no longe using ", inode)
+                        print("Found alternative choice -- no longer using ", inode)
 
 
 
@@ -4437,12 +4433,8 @@ class cubenodeset_t():
 
                 if not(self.bCubeIntegrityCheck(coords)):
                     print("BAD CUBE BEING DIVIDED -- what's going on?")
-                    #import pdb; pdb.set_trace()
-                    #self.bCubeIntegrityCheck(coords)
-                    #self.bCubeIntegrityCheck(coords)
-                    
-                    if np.max(list(noodes.keys())) < self.NDim ** self.TorLen:
-                        continue
+                    import pdb; pdb.set_trace()
+                    self.bCubeIntegrityCheck(coords)
 
 
                 
@@ -4475,11 +4467,21 @@ class cubenodeset_t():
                         #print("Here's a division")
                         #import pdb; pdb.set_trace()
                         pass
-                    print("Dividing", inode.Id, coords, self.NNode, sum0/2.0/n, sum0, ndivide, inode.Coords)
+                    #print("Dividing", inode.Id, coords, self.NNode, sum0/2.0/n, sum0, ndivide, inode.Coords)
+
+                    if self.NNode > 19000 and (1.0 in self.NeighborDistanceCount.keys()):
+                        bStop = True
 
                     if ndivide >= nlastchunk + nchunk:
                         self.UpdateHistogram()
                         self.UpdateNeighborDistanceCount()
+                        if 3.0 in self.NeighborDistanceCount.keys() and not(1.0 in self.NeighborDistanceCount.keys()):
+                            self.NNodeAtTermination.append(self.NNode)
+                            self.NRunsAtTermination.append(i)
+                            print("NNodeAtTermination, NRun")
+                            print(self.NNodeAtTermination, i)
+                            bDone = True
+                            break
                         
                         if ndivide % 4 == 0:
                             self.ExportPickle(self,"filedump.pkl")
@@ -5384,29 +5386,24 @@ if __name__ == '__main__':
     opts, args = ReadParams()
 
     if opts.PostAnalysis:
-
-        # if you export a grid and then want to analyze it separately, add a --post to the args to
-        # load the file, and then  ou can analyze and plot and debug further.
-
-        f = open('filedump2.pkl', 'rb')
+        #import pdb; pdb.set_trace()
+        f = open('filedump.pkl', 'rb')
         ggrid = pickle.load(f)
         f.close()
 
-        
-        a = ggrid.FindNeighborDistances(1.0)
-        print(a)
-
         import pdb; pdb.set_trace()
-        ggrid.ReturnAllWellFormedCubes(358)
-        ggrid.ReturnAllWellFormedCubes(366)
-
-       
         inode = 15603
         coordnode_nodecoord_coordpath_list = ggrid.SphereSweep(inode)
         import pdb; pdb.set_trace()
         
 
 
+        if False:
+            f = open('blah3.pkl', 'rb')
+            coords, nodes, coordpath = pickle.load(f)
+            f.close()
+            import pdb; pdb.set_trace()
+            ggrid.PlotCoordPath(coordpath)
     else:
         
 
@@ -5809,6 +5806,9 @@ if __name__ == '__main__':
         if ggrid.NDim == 2:
             BigHist = np.zeros(tuple(sshape)).astype("int")
 
+        
+        bigNNodeAtTermination = []
+        bigNRunsAtTermination = []
         for ibig in range(NRuns):
             ggrid = cubenodeset_t(opts.dimension)
             #import pdb; pdb.set_trace()
@@ -5851,6 +5851,10 @@ if __name__ == '__main__':
                 with open('blah5_slice2_expruns100_prob_0p01.pkl', 'wb') as fp:
                     pickle.dump(BigHist, fp)
             print("just finished run", ibig)
+            bigNNodeAtTermination.extend(ggrid.NNodeAtTermination)
+            bigNRunsAtTermination.extend(ggrid.NRunsAtTermination)
+            print("bigNNodeAtTermination", bigNNodeAtTermination)
+            print("bigNRunsAtTermination", bigNRunsAtTermination)
         #np.savetxt('blah2.csv', BigHist)
 
 
@@ -6202,17 +6206,45 @@ You can write a python routine to do the integration-by-parts for any N
 
 https://web.stanford.edu/class/math220b/handouts/heateqn.pdf  (page 24)
 
-NDIV 2540 11381
-Dividing 29947 {(0, 0): 11381, (1, 0): 6038, (0, 1): 11380, (1, 1): 11383} 29948 0.0 0 2541 (4.333333333333333, 10.592592592592592)
-NDIV 2541 3633
-Dividing 29959 {(0, 0): 3633, (1, 0): 3629, (0, 1): 3634, (1, 1): 3630} 29960 0.0 0 2542 (15.481481481481481, 5.506172839506172)
-NDIV 2542 24688
-Dividing 29971 {(0, 0): 24688, (1, 0): 24684, (0, 1): 24687, (1, 1): 24683} 29972 0.0 0 2543 (4.493827160493828, 3.8518518518518516)
-NDIV 2543 11416
-Dividing 29983 {(0, 0): 11416, (1, 0): 11412, (0, 1): 11415, (1, 1): 11411} 29984 0.0 0 2544 (24.51851851851852, 10.506172839506172)
-NDIV 2544 15620
-Dividing 29993 {(0, 0): 15620, (1, 0): 15177, (0, 1): 15623, (1, 1): 15181} 29994 0.0 0 2545 (19.62962962962963, 13.555555555555555)
-NDIV 2545 29146
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 %run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes6.py  -t 1000  -p 1.0 --dim 2 --length 200000 --expand 20000
@@ -6224,7 +6256,38 @@ NDIV 2545 29146
 
 %run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes13.py  -t 100000  --xprob 1.0 --maxnode 80000 --dim 3 --post
 
-%run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes14.py  -t 100000  --xprob 1.0 --maxnode 80000 --dim 3
+%run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes14.py  -t 100000  --xprob 1.0 --maxnode 80000 --dim 
+
+
+
+The command line
+
+%run  /Users/hrvojehrgovcic/quant/latticegas_cubenodes14.py  -t 100000  --xprob 1.0 --maxnode 8033000 --dim 3
+
+   generates the following
+
+d 1.0 2
+d 3.0 73652
+d 9.0 7242
+NDIV 440 141
+Hist update for nnode count 14118
+d 3.0 73778
+d 9.0 7242
+NNodeAtTermination, NRun
+[14118] 0
+Run 1 with this many nodes: 14118
+just finished run 274
+bigNNodeAtTermination [15456, 13796, 15242, 13928, 14496, 15046, 15454, 14898, 57586, 15910, 14194, 15890, 15340, 14724, 15140, 14084, 14360, 15046, 16590, 14338, 14074, 14386, 14480, 14758, 15384, 16128, 15494, 14678, 14724, 14584, 16828, 15448, 15942, 14544, 16272, 15230, 14180, 13832, 14786, 13680, 14654, 15818, 14710, 14158, 15942, 14296, 15924, 14370, 15162, 15288, 15116, 14646, 14190, 14534, 15774, 14690, 14644, 13920, 15584, 14840, 15102, 23966, 16022, 16378, 15508, 14350, 15582, 15434, 73162, 16298, 14546, 15792, 15796, 15358, 13954, 15624, 14330, 14806, 15116, 14398, 13974, 15080, 15200, 13340, 14384, 14586, 14276, 14764, 13698, 14200, 14906, 14354, 13976, 14220, 14416, 13996, 14656, 14556, 15712, 15512, 14428, 14230, 14842, 15698, 14362, 15706, 14478, 14852, 14638, 13654, 16246, 14626, 15540, 14698, 13802, 16588, 15050, 14874, 16058, 14676, 13862, 14928, 13894, 14620, 16272, 14402, 14802, 15330, 15626, 31730, 15400, 16520, 14124, 14782, 13842, 14302, 54096, 17014, 15394, 14182, 16016, 13760, 14960, 14688, 15638, 14302, 13824, 15638, 18832, 14778, 14700, 15000, 14374, 14524, 15066, 15466, 14236, 16836, 15714, 14582, 16432, 14062, 46872, 14908, 14338, 14524, 14390, 15228, 15788, 14908, 14612, 14402, 15996, 16152, 15766, 14780, 15658, 15124, 14262, 15206, 14236, 13990, 14452, 15838, 16012, 15066, 16164, 14040, 15412, 15858, 15424, 15548, 16254, 14328, 16524, 14402, 14792, 15030, 14468, 14546, 14170, 13104, 15944, 14718, 16816, 14606, 14870, 14480, 15788, 15694, 14262, 14146, 14164, 14938, 14108, 14362, 14070, 14982, 15482, 21528, 16370, 15008, 15412, 16120, 15092, 13662, 15562, 15186, 15180, 15392, 14476, 14872, 15078, 14598, 14866, 15460, 16766, 14770, 16658, 14182, 15078, 15512, 14850, 14372, 15042, 14628, 16816, 15426, 15146, 15212, 13990, 15188, 14876, 14858, 15626, 14278, 15556, 14288, 15860, 14310, 16448, 16136, 14474, 14946, 14046, 14730, 15716, 15790, 15384, 13752, 16230, 13540, 14212, 109266, 14118]
+bigNRunsAtTermination [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]
+Run 0 with this many nodes: 568
+0
+NDIV 0 391
+Hist update for nnode count 624
+d 1.0 3024
+
+
+
+
 
 
 
